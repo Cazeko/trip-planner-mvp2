@@ -1,0 +1,50 @@
+{
+  "name": "trip-planner-mvp2",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "dev:stable": "next dev",
+    "dev:auto": "npm run -s dev || npm run -s dev:stable",
+    "build": "next build --turbopack",
+    "build:stable": "next build",
+    "build:auto": "npm run -s build || npm run -s build:stable",
+    "clean": "node -e \"const fs=require('fs'); ['.next','.turbo','node_modules/.cache'].forEach(d=>{try{fs.rmSync(d,{recursive:true,force:true})}catch(e){}})\"",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@prisma/client": "^6.17.1",
+    "@vis.gl/react-google-maps": "^1.5.5",
+    "bcryptjs": "^3.0.2",
+    "html2canvas": "^1.4.1",
+    "jose": "^6.1.0",
+    "jspdf": "^3.0.3",
+    "jspdf-autotable": "^5.0.2",
+    "jwt-decode": "^4.0.0",
+    "nanoid": "^5.1.6",
+    "next": "15.5.4",
+    "openai": "^6.3.0",
+    "prisma": "^6.17.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-to-print": "^3.1.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/bcrypt": "^6.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/jspdf": "^1.3.3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.0.3",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

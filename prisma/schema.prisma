@@ -1,0 +1,46 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql" // 사용하는 데이터베이스 종류 (Vercel Postgres, Supabase 등)
+  url      = env("DATABASE_URL")
+}
+
+// 사용자 모델
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  nickname  String   @unique // 닉네임 필드 추가, 고유값으로 설정
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trips Trip[]
+}
+
+// 여행 일정 모델
+model Trip {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  tripTitle   String
+  destination String
+  period      String
+  keywords    String
+  
+  daysJson    Json
+
+  // --- [공유 기능 추가] ---
+  // 공유를 위한 고유하고 예측 불가능한 ID.
+  // 이 ID가 있는 경우에만 공개적으로 접근 가능합니다.
+  shareId     String?  @unique
+  // --- [여기까지] ---
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

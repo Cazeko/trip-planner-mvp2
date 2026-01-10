@@ -1,0 +1,130 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "build-next",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm run -s build:auto"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc",
+				"$eslint-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "dev-next-stable",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm run -s dev:stable"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "clean-caches",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm run -s clean"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "dev-next",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm run -s dev"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "dev-fastapi",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				".venv\\Scripts\\python.exe -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8001 --reload"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "dev-all",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"echo Starting Next.js and FastAPI in parallel..."
+			],
+			"dependsOn": [
+				"dev-next",
+				"dev-fastapi"
+			],
+			"dependsOrder": "parallel",
+			"isBackground": false,
+			"group": "build"
+		},
+		{
+			"label": "dev-next-auto",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"npm run -s dev:auto"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"isBackground": true,
+			"group": "build"
+		},
+		{
+			"label": "dev-all-auto",
+			"type": "shell",
+			"command": "cmd.exe",
+			"args": [
+				"/d",
+				"/c",
+				"echo Starting Next.js(auto) and FastAPI in parallel..."
+			],
+			"dependsOn": [
+				"dev-next-auto",
+				"dev-fastapi"
+			],
+			"dependsOrder": "parallel",
+			"isBackground": false,
+			"group": "build"
+		}
+	]
+}
