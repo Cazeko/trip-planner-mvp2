@@ -1202,7 +1202,7 @@ export default function Home() {
             ...(isMobile
               ? {
                   right: '12px',
-                  bottom: '12px',
+                  bottom: '84px',
                   left: 'auto',
                   top: 'auto',
                   transform: 'none',
@@ -1230,8 +1230,8 @@ export default function Home() {
             transition: isMobile
               ? 'transform var(--ios-dur) var(--ios-ease)'
               : 'left var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease)',
-            opacity: isMobile && chatColumnOpen ? 0 : 1,
-            pointerEvents: isMobile && chatColumnOpen ? 'none' : 'auto',
+            opacity: 1,
+            pointerEvents: 'auto',
           }}
           title={chatColumnOpen ? '채팅 닫기' : '채팅 열기'}
         >

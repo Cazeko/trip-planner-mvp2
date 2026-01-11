@@ -176,7 +176,8 @@ const rawStyles: { [key: string]: React.CSSProperties } = {
     gap: '12px',
     marginTop: '10px',
     position: 'relative',
-    paddingBottom: 'env(safe-area-inset-bottom, 12px)'
+    paddingBottom: 'env(safe-area-inset-bottom, 12px)',
+    marginBottom: '8px'
   },
   chatInput: {
     flex: 1,
