@@ -11,6 +11,7 @@ import { jwtDecode } from 'jwt-decode';
 import { authFetch, getStoredToken, clearStoredToken, ensureFreshToken } from '../lib/authClient';
 import { apiFetch } from '../lib/apiFetch';
 import { SpeedInsights } from "@vercel/speed-insights/next"
+import { generatePremiumPDF } from '../lib/pdfGenerator';
 
 import TripMap from '../components/TripMap';
 import type { TripData, ItineraryItem, Day } from '../types/trip';
@@ -1125,6 +1126,15 @@ export default function Home() {
       
     } catch (err: any) {
       console.error('[PDF] Server-side generation failed', err);
+
+      // Fallback: client-side generation (works even if backend lacks /pdf/generate)
+      try {
+        const ok = await generatePremiumPDF(tripResult as TripData);
+        if (ok) return;
+      } catch (fallbackErr) {
+        console.error('[PDF] Client-side fallback failed', fallbackErr);
+      }
+
       alert(`PDF 생성 실패: ${err?.message || err}`);
     }
   };  // --- RENDER LOGIC ---
