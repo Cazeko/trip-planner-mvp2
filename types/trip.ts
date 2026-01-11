@@ -35,6 +35,8 @@ export interface ItineraryItem extends PlaceDetails {
   // Google Places 관련 추가 정보 (선택적)
   types?: string[];
   photoReference?: string;
+  photoUrl?: string; // 장소 대표 이미지 URL
+  photoUrlByDay?: string; // 낮 시간대 최적 이미지
 
   // --- [예산 기능 추가] ---
   // 각 항목의 예상 경비를 저장할 필드 (선택적)

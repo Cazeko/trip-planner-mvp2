@@ -9,9 +9,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { APIProvider } from '@vis.gl/react-google-maps';
 import { jwtDecode } from 'jwt-decode';
 import { authFetch, getStoredToken, clearStoredToken, ensureFreshToken } from '../lib/authClient';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { apiFetch } from '../lib/apiFetch';
+ 
 
 import TripMap from '../components/TripMap';
 import type { TripData, ItineraryItem, Day } from '../types/trip';
@@ -23,6 +22,8 @@ import { scheduleWithDurations, type TravelMode } from '../lib/scheduling';
 import { generateBalanceReport } from '../lib/categoryBalance';
 import { getCityProfile, getCityDescription, getRecommendedMode } from '../lib/cityProfiles';
 import TripSummaryBar from '../components/TripSummaryBar';
+import TripAnalysis from '../components/TripAnalysis';
+import { styles } from './styles';
 
 // Sanitize helper to clean odd AI strings and ensure readable Korean text
 const sanitizeText = (t?: string) => {
@@ -166,7 +167,20 @@ const SortableItem = ({ dayIndex, itemIndex, item, handleDeleteItem, handleUpdat
         {isEditing.time ? <input type="time" value={editedContent.time} onChange={(e) => handleInputChange(e, 'time')} onBlur={() => handleSave('time')} onKeyDown={(e) => handleKeyDown(e, 'time')} autoFocus style={{ ...styles.itemTime, ...styles.inlineInput }} onPointerDown={(e) => e.stopPropagation()} /> : <span style={styles.itemTime} onClick={() => setIsEditing({ ...isEditing, time: true })} onPointerDown={(e) => e.stopPropagation()}>{item.time}</span>}
         <span style={styles.placeName}>{item.place}</span>
       </div>
-      {isEditing.description ? <textarea value={editedContent.description} onChange={(e) => handleInputChange(e, 'description')} onBlur={() => handleSave('description')} onKeyDown={(e) => handleKeyDown(e, 'description')} autoFocus style={{ ...styles.itemDescription, ...styles.inlineTextarea }} onPointerDown={(e) => e.stopPropagation()} /> : <p style={styles.itemDescription} onClick={() => setIsEditing({ ...isEditing, description: true })} onPointerDown={(e) => e.stopPropagation()}>{sanitizeText(item.description) || '클릭하여 설명을 추가하세요...'}</p>}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+        {item.photoUrl && (
+          <div style={{ flexShrink: 0, width: '120px', height: '80px', borderRadius: '8px', overflow: 'hidden', background: '#f0f0f0' }}>
+            <img
+              src={item.photoUrl}
+              alt={item.place}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+        )}
+        <div style={{ flex: 1 }}>
+          {isEditing.description ? <textarea value={editedContent.description} onChange={(e) => handleInputChange(e, 'description')} onBlur={() => handleSave('description')} onKeyDown={(e) => handleKeyDown(e, 'description')} autoFocus style={{ ...styles.itemDescription, ...styles.inlineTextarea }} onPointerDown={(e) => e.stopPropagation()} /> : <p style={styles.itemDescription} onClick={() => setIsEditing({ ...isEditing, description: true })} onPointerDown={(e) => e.stopPropagation()}>{sanitizeText(item.description) || '클릭하여 설명을 추가하세요...'}</p>}
+        </div>
+      </div>
       {item.reason && <p style={styles.itemReason}>👍 추천 이유: {sanitizeText(item.reason)}</p>}
       <div style={styles.detailsContainer}>
         <div style={styles.detailItem}>
@@ -253,7 +267,11 @@ export default function Home() {
   const [optimizingDay, setOptimizingDay] = useState<number | null>(null);
   const [travelMode, setTravelMode] = useState('DRIVE');
   const [autoOptimizeAfterReplace, setAutoOptimizeAfterReplace] = useState(true);
+  const [chatColumnOpen, setChatColumnOpen] = useState(true);
   const [autoReassignAfterOptimize, setAutoReassignAfterOptimize] = useState(true);
+  const [showSummaryPanel, setShowSummaryPanel] = useState(true);
+  const [showAnalysisPanel, setShowAnalysisPanel] = useState(true);
+  const [showMapPanel, setShowMapPanel] = useState(true);
   const [askedTransport, setAskedTransport] = useState(false);
   const [restoredFromLocal, setRestoredFromLocal] = useState(false);
 
@@ -298,6 +316,42 @@ export default function Home() {
     const boot = async () => {
       await ensureFreshToken();
       const token = getStoredToken();
+        // OAuth callback 처리: /?token=...&remember=1 또는 /?oauthError=...
+        try {
+          const url = new URL(window.location.href);
+          const oauthToken = url.searchParams.get('token');
+          const oauthRemember = url.searchParams.get('remember') === '1';
+          const oauthError = url.searchParams.get('oauthError');
+
+          if (oauthError) {
+            setError(oauthError);
+            url.searchParams.delete('oauthError');
+            window.history.replaceState({}, '', url.toString());
+          }
+
+          if (oauthToken) {
+            const decoded: { userId: string, email: string, nickname: string } = jwtDecode(oauthToken);
+            setCurrentUser({ id: decoded.userId, email: decoded.email, nickname: decoded.nickname });
+
+            if (oauthRemember) {
+              localStorage.setItem('trip-planner-token', oauthToken);
+              localStorage.setItem('trip-planner-remember', '1');
+              sessionStorage.removeItem('trip-planner-token');
+            } else {
+              sessionStorage.setItem('trip-planner-token', oauthToken);
+              localStorage.removeItem('trip-planner-remember');
+            }
+
+            url.searchParams.delete('token');
+            url.searchParams.delete('remember');
+            window.history.replaceState({}, '', url.toString());
+
+            setShowAuthModal(false);
+            fetchSavedTrips();
+          }
+        } catch {
+          // ignore
+        }
       if (token) {
         try {
           const decoded: { userId: string, email: string, nickname: string } = jwtDecode(token);
@@ -341,9 +395,11 @@ export default function Home() {
   useEffect(() => {
     // 다중 이동수단이 들어온 경우 첫 번째 모드를 기본으로 사용
     if (extracted.preferredTransportMulti && extracted.preferredTransportMulti.length) {
-      setTravelMode(extracted.preferredTransportMulti[0]);
+      const mode = Array.isArray(extracted.preferredTransportMulti) ? extracted.preferredTransportMulti[0] : extracted.preferredTransportMulti;
+      if (typeof mode === 'string') setTravelMode(mode);
     } else if (extracted.preferredTransport) {
-      setTravelMode(extracted.preferredTransport);
+      const mode = Array.isArray(extracted.preferredTransport) ? extracted.preferredTransport[0] : extracted.preferredTransport;
+      if (typeof mode === 'string') setTravelMode(mode);
     }
   }, [extracted.preferredTransport, extracted.preferredTransportMulti]);
 
@@ -378,52 +434,64 @@ export default function Home() {
       const withUser = [...msgs, { role: 'user' as const, content: text }];
       setMsgs(withUser);
       
-      const res = await fetch('/api/ljj', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ messages: withUser, extracted, trip: tripResult }) 
-      });
-      
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'chat error');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60초 타임아웃 (GPT 응답 대기 시간 연장)
 
-      // 최소 2초 대기 (AI가 고민하는 느낌)
-      const minThinkingTime = 2000;
-      const startTime = Date.now();
-      
-      if (data.trip) {
-        const elapsed = Date.now() - startTime;
-        const remaining = Math.max(0, minThinkingTime - elapsed);
-        await new Promise(resolve => setTimeout(resolve, remaining));
+      try {
+        const data = await apiFetch('/api/ljj', { 
+          method: 'POST', 
+          body: JSON.stringify({ messages: withUser, extracted, trip: tripResult }),
+          signal: controller.signal,
+          timeout: 60000,
+          friendlyError: 'AI 응답을 받아오지 못했습니다.'
+        });
+        clearTimeout(timeoutId);
+
+        // 최소 2초 대기 (AI가 고민하는 느낌)
+        const minThinkingTime = 2000;
+        const startTime = Date.now();
         
-        setTripResult(data.trip);
-        setMsgs(prev => [...prev, { role: 'assistant', content: data.reply || "일정을 수정했어요." }]);
-      } else {
-        const reply = data.reply || '';
-        let ask: string = data.ask || '';
-        const nextExtracted = data.extracted || {};
-        
-        const hasTravelType = !!(nextExtracted.travelType || extracted.travelType);
-        const hasBudget = !!(nextExtracted.budgetMode || extracted.budgetMode);
-        if (ask && /여행\s*유형|유형을\s*알려주세요/i.test(ask) && hasTravelType) ask = '';
-        if (ask && /예산|예산\s*수준/i.test(ask) && hasBudget) ask = '';
-        
-        const bullet = ask && ask !== lastAskRef.current ? `\n\n• ${ask}` : '';
-        
-        const elapsed = Date.now() - startTime;
-        const remaining = Math.max(0, minThinkingTime - elapsed);
-        await new Promise(resolve => setTimeout(resolve, remaining));
-        
-        setMsgs(prev => [...prev, { role: 'assistant', content: reply + bullet }]);
-        
-        if (ask) lastAskRef.current = ask; else lastAskRef.current = '';
-        
-        setExtracted(nextExtracted);
-        
-        // ready 상태: LJJ에서 ready이고 질문이 없으며, 이동수단도 선택되어야 함
-        const isReadyFromLJJ = !!data.ready && !ask;
-        const hasTransport = !!(nextExtracted.preferredTransport || extracted.preferredTransport || (nextExtracted.preferredTransportMulti && nextExtracted.preferredTransportMulti.length) || (extracted.preferredTransportMulti && extracted.preferredTransportMulti.length));
-        setReady(isReadyFromLJJ && hasTransport);
+        if (data.trip) {
+          const elapsed = Date.now() - startTime;
+          const remaining = Math.max(0, minThinkingTime - elapsed);
+          await new Promise(resolve => setTimeout(resolve, remaining));
+          
+          setTripResult(data.trip);
+          setMsgs(prev => [...prev, { role: 'assistant', content: data.reply || "일정을 수정했어요." }]);
+        } else {
+          const reply = data.reply || '';
+          let ask: string = data.ask || '';
+          const nextExtracted = data.extracted || {};
+          
+          const hasTravelType = !!(nextExtracted.travelType || extracted.travelType);
+          const hasBudget = !!(nextExtracted.budgetMode || extracted.budgetMode);
+          if (ask && /여행\s*유형|유형을\s*알려주세요/i.test(ask) && hasTravelType) ask = '';
+          if (ask && /예산|예산\s*수준/i.test(ask) && hasBudget) ask = '';
+          
+          const bullet = ask && ask !== lastAskRef.current ? `\n\n• ${ask}` : '';
+          
+          const elapsed = Date.now() - startTime;
+          const remaining = Math.max(0, minThinkingTime - elapsed);
+          await new Promise(resolve => setTimeout(resolve, remaining));
+          
+          setMsgs(prev => [...prev, { role: 'assistant', content: reply + bullet }]);
+          
+          if (ask) lastAskRef.current = ask; else lastAskRef.current = '';
+          
+          setExtracted(nextExtracted);
+          
+          // ready 상태: LJJ에서 ready이고 질문이 없으며, 이동수단도 선택되어야 함
+          const isReadyFromLJJ = !!data.ready && !ask;
+          const hasTransport = !!(nextExtracted.preferredTransport || extracted.preferredTransport || (nextExtracted.preferredTransportMulti && nextExtracted.preferredTransportMulti.length) || (extracted.preferredTransportMulti && extracted.preferredTransportMulti.length));
+          setReady(isReadyFromLJJ && hasTransport);
+        }
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          throw new Error('응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.');
+        }
+        throw e;
+      } finally {
+        clearTimeout(timeoutId);
       }
     } catch (e: any) {
       setError(e.message);
@@ -444,7 +512,7 @@ export default function Home() {
     setRestoredFromLocal(false);
     setError(null);
     setCurrentTripId(null);
-    setMsgs(prev => [...prev, { role: 'assistant', content: '알겠습니다! 최고의 일정을 생성하고 있어요. 잠시만 기다려주세요...' }]);
+    // setMsgs(prev => [...prev, { role: 'assistant', content: '알겠습니다! 최고의 일정을 생성하고 있어요. 잠시만 기다려주세요...' }]); // 중복 메시지 제거
 
     // 공항/터미널 키워드 탐지
     const isAirport = (name?: string) => /공항|airport|터미널|terminal/i.test(name || '');
@@ -460,13 +528,14 @@ export default function Home() {
         exclude: extracted.exclude, 
         preferredTransport: extracted.preferredTransport,
       };
-      const response = await fetch('/api/generate-trip', {
+      
+      const data = await apiFetch('/api/generate-trip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        timeout: 90000, // 90초
+        retries: 1,
+        friendlyError: '일정 생성 중 오류가 발생했습니다.'
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '알 수 없는 에러가 발생했습니다.');
       
       const destination = extracted.destination || '';
       let days = Array.isArray(data.days) ? data.days as Day[] : [];
@@ -501,18 +570,16 @@ export default function Home() {
           
           try {
             // Google Routes API 시도
-            const resp = await fetch('/api/optimize-route', {
+            const arr = await apiFetch('/api/optimize-route', {
               method: 'POST', 
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ itinerary: d.itinerary, travelMode })
+              body: JSON.stringify({ itinerary: d.itinerary, travelMode }),
+              timeout: 10000,
+              retries: 0
             });
             
-            if (resp.ok) {
-              const arr = await resp.json();
-              if (Array.isArray(arr) && arr.length === d.itinerary.length) {
-                console.log(`[최적화] Day ${dayIdx + 1} Google API 성공`);
-                return { ...d, itinerary: scheduleWithDurations(arr, travelMode as TravelMode, destination) };
-              }
+            if (Array.isArray(arr) && arr.length === d.itinerary.length) {
+              console.log(`[최적화] Day ${dayIdx + 1} Google API 성공`);
+              return { ...d, itinerary: scheduleWithDurations(arr, travelMode as TravelMode, destination) };
             }
             
             // API 실패 시 fallback: 최근접 이웃 알고리즘
@@ -538,15 +605,125 @@ export default function Home() {
         });
       }
 
+      // 썸네일 확인 로그
+      console.log('[일정 생성] 썸네일 확인:', scheduledDays.flatMap(d => d.itinerary).filter(it => it.photoUrl).length, '개 발견');
+      scheduledDays.forEach((d, idx) => {
+        d.itinerary.forEach((it, i) => {
+          if (it.photoUrl) console.log(`  Day ${idx + 1} Item ${i + 1}: ${it.place} -> ${it.photoUrl.substring(0, 80)}...`);
+        });
+      });
+      
       setTripResult({ ...data, destination, period: extracted.period, keywords: extracted.keywords, days: scheduledDays });
       // 생성 중 메시지만 제거하고 기존 대화는 유지합니다.
-      setMsgs(prev => prev.filter(m => !m.content.includes('생성하고 있어요')).concat({ role: 'assistant', content: '일정이 생성되었습니다! 오른쪽에서 확인하고 수정할 수 있어요.' }));
+      setMsgs(prev => prev.concat({ role: 'assistant', content: '일정이 생성되었습니다! 오른쪽에서 확인하고 수정할 수 있어요.' }));
 
     } catch (err: any) { 
       setError(err.message); 
       setMsgs(prev => [...prev, { role: 'assistant', content: `생성 중 오류가 발생했습니다: ${err.message}` }]);
     } finally { 
       setIsLoading(false); 
+      setBusy(false);
+    }
+  };
+
+  const handleOptimize = async (type: 'optimize_efficiency' | 'reduce_fatigue') => {
+    if (!tripResult) return;
+    
+    try {
+      setBusy(true);
+      
+      let optimizedTrip = { ...tripResult };
+      
+      if (type === 'optimize_efficiency') {
+        // 각 일차별로 경로 최적화
+        const optimizedDays = await Promise.all(
+          tripResult.days.map(async (day, idx) => {
+            if (day.itinerary.length < 3) return day;
+            
+            try {
+              const arr = await apiFetch('/api/optimize-route', {
+                method: 'POST',
+                body: JSON.stringify({ itinerary: day.itinerary, travelMode }),
+                timeout: 10000,
+                friendlyError: '경로 최적화에 실패했어요',
+              });
+              
+              if (Array.isArray(arr) && arr.length === day.itinerary.length) {
+                return { ...day, itinerary: scheduleWithDurations(arr, travelMode as TravelMode, tripResult.destination) };
+              }
+
+              // API 응답이 기대 형태가 아니면 로컬 fallback 적용
+              const optimizedByDistance = optimizeByNearestNeighbor(day.itinerary);
+              return { ...day, itinerary: scheduleWithDurations(optimizedByDistance, travelMode as TravelMode, tripResult.destination) };
+            } catch (err) {
+              console.error(`Day ${idx + 1} optimization failed:`, err);
+
+              // 오류 시에도 로컬 fallback 적용
+              const optimizedByDistance = optimizeByNearestNeighbor(day.itinerary);
+              return { ...day, itinerary: scheduleWithDurations(optimizedByDistance, travelMode as TravelMode, tripResult.destination) };
+            }
+            
+            return day;
+          })
+        );
+        
+        optimizedTrip.days = optimizedDays;
+        setMsgs(prev => [...prev, { role: 'assistant', content: '✅ 이동 경로를 최적화했어요! 효율성이 개선되었습니다.' }]);
+      } else if (type === 'reduce_fatigue') {
+        // 피로도 감소: 장소 수 제한하되 저녁 식사는 유지
+        const relaxedDays = tripResult.days.map(day => {
+          let itinerary = [...day.itinerary];
+          
+          // 시간대별 분류
+          const breakfast = itinerary.filter(item => {
+            const h = parseInt(item.time.split(':')[0]);
+            return h >= 9 && h < 11;
+          });
+          const lunch = itinerary.filter(item => {
+            const h = parseInt(item.time.split(':')[0]);
+            return h >= 12 && h < 14;
+          });
+          const afternoon = itinerary.filter(item => {
+            const h = parseInt(item.time.split(':')[0]);
+            return h >= 14 && h < 18;
+          });
+          const dinner = itinerary.filter(item => {
+            const h = parseInt(item.time.split(':')[0]);
+            return h >= 18 && h < 21;
+          });
+          
+          // 필수 유지: 아침(1개), 점심(1개), 오후(1-2개), 저녁(1개)
+          let reduced = [
+            ...breakfast.slice(0, 1),
+            ...lunch.slice(0, 1),
+            ...afternoon.slice(0, 2),
+            ...dinner.slice(0, 1), // 저녁 식사 반드시 포함
+          ];
+          
+          // 시간순 정렬
+          reduced.sort((a, b) => a.time.localeCompare(b.time));
+          
+          // 시작 시간 늦춤 (10시 이후로)
+          reduced = reduced.map(item => {
+            const [h, m] = item.time.split(':').map(Number);
+            if (h < 10) {
+              return { ...item, time: `10:${m.toString().padStart(2, '0')}` };
+            }
+            return item;
+          });
+          
+          return { ...day, itinerary: scheduleWithDurations(reduced, travelMode as TravelMode, tripResult.destination) };
+        });
+        
+        optimizedTrip.days = relaxedDays;
+        setMsgs(prev => [...prev, { role: 'assistant', content: '✅ 일정을 여유롭게 조정했어요! 저녁 식사까지 포함하여 피로도를 줄였습니다.' }]);
+      }
+      
+      setTripResult(optimizedTrip);
+    } catch (err) {
+      console.error('Optimization error:', err);
+      setMsgs(prev => [...prev, { role: 'assistant', content: '최적화 중 문제가 발생했어요.' }]);
+    } finally {
       setBusy(false);
     }
   };
@@ -565,14 +742,14 @@ export default function Home() {
         setMsgs(withUser);
         
         const startTime = Date.now();
-        const resp = await fetch('/api/ai/modify-trip', {
+        const data = await apiFetch('/api/ai/modify-trip', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: withUser, extracted, trip: tripResult })
+          body: JSON.stringify({ messages: withUser, extracted, trip: tripResult }),
+          timeout: 60000,
+          retries: 0
         });
-        const data = await resp.json();
         
-        if (resp.ok && data?.trip) {
+        if (data?.trip) {
           // 최소 2초 대기
           const elapsed = Date.now() - startTime;
           const remaining = Math.max(0, 2000 - elapsed);
@@ -627,7 +804,7 @@ export default function Home() {
           tripTitle: customTitle,
           destination: tripResult.destination,
           period: tripResult.period,
-          keywords: tripResult.keywords,
+          keywords: typeof tripResult.keywords === 'string' ? tripResult.keywords : '',
           daysJson: tripResult.days,
         })
       });
@@ -722,9 +899,13 @@ export default function Home() {
   const handlePlaceAdd = async (placeId: string) => {
     if (addingPlaceToDayIndex === null || !tripResult) return;
     try {
-      const response = await fetch('/api/get-place-details', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ placeId }) });
-      const placeDetails = await response.json();
-      if (!response.ok) throw new Error(placeDetails.error || '장소 정보를 가져오지 못했습니다.');
+      const placeDetails = await apiFetch('/api/get-place-details', { 
+        method: 'POST', 
+        body: JSON.stringify({ placeId }),
+        timeout: 10000,
+        friendlyError: '장소 정보를 가져오지 못했습니다.'
+      });
+      
       const newDays = [...tripResult.days];
       const targetDay = newDays[addingPlaceToDayIndex];
       
@@ -759,22 +940,18 @@ export default function Home() {
       } else {
         // Google API 시도
         try {
-          const response = await fetch('/api/optimize-route', { 
+          const optimizedItinerary = await apiFetch('/api/optimize-route', { 
             method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ itinerary: itineraryToOptimize, travelMode }) 
+            body: JSON.stringify({ itinerary: itineraryToOptimize, travelMode }),
+            timeout: 10000,
+            retries: 0
           });
           
-          if (response.ok) {
-            const optimizedItinerary = await response.json();
-            if (Array.isArray(optimizedItinerary) && optimizedItinerary.length === itineraryToOptimize.length) {
-              console.log('[수동 최적화] Google API 성공');
-              finalItinerary = optimizedItinerary;
-            } else {
-              throw new Error('API 응답 형식 오류');
-            }
+          if (Array.isArray(optimizedItinerary) && optimizedItinerary.length === itineraryToOptimize.length) {
+            console.log('[수동 최적화] Google API 성공');
+            finalItinerary = optimizedItinerary;
           } else {
-            throw new Error('API 요청 실패');
+            throw new Error('API 응답 형식 오류');
           }
         } catch (apiError) {
           // Fallback: 거리 기반 정렬
@@ -811,14 +988,26 @@ export default function Home() {
     setTripResult(prev => prev ? { ...prev, days: re } : prev);
   }, [travelMode]);
 
-  const fetchAlternatives = async (lat: number, lng: number, page: number, filters: AltFilters) => {
+  const fetchAlternatives = async (lat: number, lng: number, page: number, filters: AltFilters, baseItem?: ItineraryItem) => {
     try {
-      const resp = await fetch('/api/nearby-suggestions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lng, count: 6, page, pageSize: 6, minRating: filters.minRating, openNow: filters.openNow, categories: filters.categories })
+      const data = await apiFetch('/api/nearby-suggestions', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          lat, 
+          lng, 
+          count: 6, 
+          page, 
+          pageSize: 6, 
+          minRating: filters.minRating, 
+          openNow: filters.openNow, 
+          categories: filters.categories,
+          basePlaceName: baseItem?.place || altBaseItem?.place,
+          baseTypes: baseItem?.types || altBaseItem?.types
+        }),
+        timeout: 15000,
+        friendlyError: '대안 검색 실패'
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || '대안 검색 실패');
+
       setAltList(data.candidates || []);
       setAltTotal(Number(data.total) || (data.candidates?.length || 0));
       setAltPage(page);
@@ -833,7 +1022,7 @@ export default function Home() {
     setAltDayIndex(dayIndex);
     setAltItemIndex(itemIndex);
     setAltModalOpen(true);
-    await fetchAlternatives(item.latitude, item.longitude, 1, altFilters);
+    await fetchAlternatives(item.latitude, item.longitude, 1, altFilters, item);
   };
 
   const applyAlternative = async (candidate: any) => {
@@ -870,56 +1059,6 @@ export default function Home() {
     }
   };
 
-  const handleAutoBalanceCategories = async () => {
-    if (!tripResult) { alert('균형 조정할 일정이 없습니다.'); return; }
-    
-    try {
-      setIsLoading(true);
-      const response = await fetch('/api/auto-balance-categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          days: tripResult.days,
-          destination: tripResult.destination 
-        })
-      });
-      
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || '카테고리 균형 조정 실패');
-      
-      // 시간 재배치
-      const reScheduledDays = data.days.map((day: Day) => ({
-        ...day,
-        itinerary: scheduleWithDurations(day.itinerary, travelMode as TravelMode, tripResult.destination)
-      }));
-      
-      setTripResult({ ...tripResult, days: reScheduledDays });
-      // suggestions를 성공/실패로 분리하여, 사용자가 보기 편한 요약만 채팅으로 표시합니다.
-      const suggestions: string[] = Array.isArray(data.suggestions) ? data.suggestions : [];
-      const added: string[] = [];
-      const notFound: string[] = [];
-      suggestions.forEach(s => {
-        if (/찾을 수 없음|찾지 못했습니다|없음/.test(s)) notFound.push(s);
-        else added.push(s);
-      });
-
-      let shortMsg = '';
-      if (added.length > 0) shortMsg += `카테고리 균형 조정: ${added.length}건 추가됨.`;
-      if (notFound.length > 0) shortMsg += (shortMsg ? ' ' : '') + `${notFound.length}건은 후보를 찾지 못했습니다.`;
-      if (!shortMsg) shortMsg = '카테고리가 이미 균형있게 구성되어 있습니다.';
-
-      // 채팅에는 간단한 요약만 추가하고, 상세는 콘솔에 남깁니다.
-      setMsgs(prev => [...prev, { role: 'assistant', content: shortMsg }]);
-      if (added.length > 0) console.info('[Auto Balance] added:', added);
-      if (notFound.length > 0) console.warn('[Auto Balance] not found:', notFound);
-    } catch (err: any) {
-      setError(err.message);
-      alert(`카테고리 균형 조정 실패: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleShare = async () => {
     if (!currentTripId) { alert('공유하려면 먼저 일정을 저장해야 합니다.'); return; }
     const token = getStoredToken(); if (!token) return;
@@ -932,203 +1071,61 @@ export default function Home() {
     } catch (err: any) { alert(`오류: ${err.message}`); }
   };
 
-  // PDF 한글 폰트 로더: 로컬(public/fonts) → 대체(CDN) 순으로 시도
-  const loadKoreanPdfFont = async (pdf: any): Promise<string | null> => {
-    const sources = [
-      // 권장 로컬 파일들 (있는 순서대로 시도)
-      '/fonts/NotoSansKR-Regular.ttf',
-      '/fonts/NotoSansKR-VariableFont_wght.ttf',
-      '/fonts/NotoSansKR-Bold.ttf',
-      '/fonts/Pretendard-Regular.ttf',
-      // 공개 CDN 폴백 (CORS 허용 필요)
-      'https://cdn.jsdelivr.net/gh/googlefonts/noto-cjk@v2.004/Sans/TTF/NotoSansKR-Regular.ttf'
-    ];
-
-    // ArrayBuffer → Base64 (대용량 안전 변환)
-    const toBase64 = (buf: ArrayBuffer) => {
-      const bytes = new Uint8Array(buf);
-      const chunk = 0x8000;
-      let binary = '';
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk) as any);
-      }
-      return btoa(binary);
-    };
-
-    for (const src of sources) {
-      try {
-        const res = await fetch(src, { mode: 'cors' });
-        if (!res.ok) continue;
-        const buf = await res.arrayBuffer();
-        const b64 = toBase64(buf);
-  const vfsName = 'KFont-Regular.ttf';
-  const fontName = 'KFont';
-  pdf.addFileToVFS(vfsName, b64);
-  // 동일 TTF를 normal/bold/italic/bolditalic에 모두 매핑하여 스타일 전환 시 기본 폰트로 폴백되는 문제 방지
-  pdf.addFont(vfsName, fontName, 'normal');
-  pdf.addFont(vfsName, fontName, 'bold');
-  pdf.addFont(vfsName, fontName, 'italic');
-  pdf.addFont(vfsName, fontName, 'bolditalic');
-  return fontName;
-      } catch {
-        // try next source
-      }
-    }
-    return null;
-  };
-
   const handleExportPDF = async () => {
     if (!tripResult) { alert('내보낼 일정이 없습니다.'); return; }
+    
     try {
-      const pdf = new jsPDF('p', 'mm', 'a4') as any;
-      // 한글 폰트 임베드 (로컬/폴백 순서)
-      const kFont = await loadKoreanPdfFont(pdf);
+      // Normalize data for backend
+      const keywords = Array.isArray(tripResult.keywords) 
+        ? tripResult.keywords.join(', ') 
+        : (tripResult.keywords || '');
+      
+      const travelType = Array.isArray(summaryMeta.travelType)
+        ? summaryMeta.travelType[0]
+        : summaryMeta.travelType;
+      
+      const transport = Array.isArray(summaryMeta.preferredTransport)
+        ? summaryMeta.preferredTransport
+        : summaryMeta.preferredTransport ? [summaryMeta.preferredTransport] : [];
+      
+      // Use server-side PDF generation for better Korean font support
+      const payload = {
+        trip: {
+          ...tripResult,
+          keywords, // Ensure it's a string
+        },
+        meta: {
+          travelType, // Single value, not array
+          preferredTransportMulti: transport.length > 0 ? transport : undefined,
+          travelMode: Array.isArray(travelMode) ? travelMode[0] : travelMode,
+        },
+      };
 
-      // 폰트 로드 실패 시: 사용자에게 명확 안내 + 이미지 기반 폴백
-      if (!kFont) {
-        console.warn('[PDF] Korean font NOT embedded. Add public/fonts/NotoSansKR-Regular.ttf for crisp selectable text. Falling back to image.');
-        alert('한글 폰트 파일이 없어 이미지 방식으로 PDF를 생성합니다. 선택/검색이 안 될 수 있으니 fonts 폴더에 NotoSansKR-Regular.ttf를 추가하세요.');
-        const el = printRef.current;
-        if (!el) { alert('화면 요소를 찾지 못했습니다.'); return; }
-        setPrinting(true);
-        try {
-          const canvas = await html2canvas(el as HTMLElement, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-          const imgData = canvas.toDataURL('image/png');
-          const pageWidth = pdf.internal.pageSize.getWidth();
-          const pageHeight = pdf.internal.pageSize.getHeight();
-          const imgWidth = pageWidth;
-          const imgHeight = canvas.height * imgWidth / canvas.width;
-          let heightLeft = imgHeight;
-          let position = 0;
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pageHeight;
-          while (heightLeft > 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
-          }
-          setPrinting(false);
-          pdf.save(`${tripResult.tripTitle || 'trip'}.pdf`);
-          return;
-        } catch (imgErr: any) {
-          setPrinting(false);
-          console.error('Image-based PDF fallback failed', imgErr);
-          alert('PDF 폰트를 불러오지 못했고 이미지 폴백도 실패했습니다. 네트워크/보안 정책을 확인해주세요.');
-          return;
-        }
-      }
-
-      const baseFont = kFont;
-      pdf.setFont(baseFont, 'normal');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const margin = 14;
-      
-  // 헤더 그리기 (타이틀 + 메타 + 라인)
-  pdf.setFont(baseFont, 'bold');
-  pdf.setFontSize(18);
-  pdf.setTextColor(34, 62, 120);
-  pdf.text(sanitizeText(tripResult.tripTitle), margin, 18);
-      
-  pdf.setFont(baseFont, 'normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(90, 98, 104);
-  const meta = `${sanitizeText(tripResult.destination)} · ${sanitizeText(tripResult.period)} · ${sanitizeText(tripResult.keywords || '')}`;
-  pdf.text(meta, margin, 25);
-  pdf.setDrawColor(221, 232, 243);
-  pdf.setLineWidth(0.6);
-  pdf.line(margin, 28, pageWidth - margin, 28);
-  pdf.setTextColor(0, 0, 0);
-      
-      const total = tripResult.days.reduce((t, d) => 
-        t + d.itinerary.reduce((s, i) => s + (i.expense || 0), 0), 0
-      );
-  pdf.setFont(baseFont, 'bold');
-  pdf.setTextColor(31, 122, 46);
-  pdf.text(`총 예상 경비: ${total.toLocaleString()}원`, margin, 34);
-  pdf.setTextColor(0, 0, 0);
-      
-      // 카테고리 균형 보고서
-      const balanceReport = generateBalanceReport(tripResult.days);
-      if (balanceReport.length > 0) {
-        pdf.setFont(baseFont, 'normal');
-        pdf.setFontSize(9);
-        pdf.setTextColor(200, 100, 0);
-        let reportY = 40;
-        balanceReport.forEach(line => {
-          pdf.text(`⚠ ${sanitizeText(line)}`, margin, reportY);
-          reportY += 5;
-        });
-        pdf.setTextColor(0, 0, 0);
-      }
-      
-      let startY = balanceReport.length > 0 ? 40 + balanceReport.length * 5 + 5 : 40;
-      
-      // 각 Day마다 새 페이지 + AutoTable
-      tripResult.days.forEach((day, idx) => {
-        if (idx > 0) pdf.addPage();
-        pdf.setFont(baseFont, 'bold');
-        pdf.setFontSize(14);
-        pdf.setTextColor(34, 62, 120);
-        pdf.text(`Day ${day.day}`, margin, idx === 0 ? startY : 20);
-        pdf.setTextColor(0, 0, 0);
-        
-        const tableData = day.itinerary.map(it => {
-          const bullets: string[] = [];
-          if (it.description) bullets.push(`• ${sanitizeText(it.description)}`);
-          if (it.reason) bullets.push(`• 추천: ${sanitizeText(it.reason)}`);
-          const extras: string[] = [];
-          if (it.formattedAddress) extras.push(sanitizeText(it.formattedAddress));
-          if (it.internationalPhoneNumber) extras.push(it.internationalPhoneNumber);
-          if (typeof it.rating === 'number') extras.push(`평점 ${it.rating}`);
-          if (extras.length) bullets.push(`• ${extras.join(' · ')}`);
-          const memo = bullets.join('\n');
-
-          return [
-            it.time || '',
-            sanitizeText(it.place) || '',
-            memo,
-            typeof it.expense === 'number' ? `${it.expense.toLocaleString()}원` : ''
-          ];
-        });
-        
-        autoTable(pdf, {
-          startY: idx === 0 ? startY + 6 : 26,
-          head: [['시간', '장소', '메모', '경비']],
-          body: tableData,
-          theme: 'grid',
-          headStyles: { 
-            fillColor: [34, 62, 120],
-            textColor: [255, 255, 255],
-            fontSize: 11,
-            fontStyle: 'bold',
-            halign: 'center'
-          },
-          styles: { 
-            fontSize: 10.5,
-            cellPadding: 3.5,
-            lineColor: [221, 232, 243],
-            lineWidth: 0.2,
-            font: baseFont,
-            valign: 'top'
-          },
-          alternateRowStyles: {
-            fillColor: [248, 251, 255]
-          },
-          columnStyles: {
-            0: { cellWidth: 18, halign: 'center' },
-            1: { cellWidth: 55 },
-            2: { cellWidth: 'auto' },
-            3: { cellWidth: 28, halign: 'right' }
-          },
-          margin: { left: margin, right: margin }
-        });
+      const response = await fetch('/api/pdf/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       
-  pdf.save(`${tripResult.tripTitle || 'trip'}.pdf`);
-  console.info('[PDF] Export complete with embedded Korean font.');
-    } catch (e: any) {
-      alert(`PDF 생성 실패: ${e.message || e}`);
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error(text || '서버에서 PDF 생성 실패');
+      }
+      
+      // Download the PDF
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${tripResult.tripTitle || 'trip'}_premium.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+    } catch (err: any) {
+      console.error('[PDF] Server-side generation failed', err);
+      alert(`PDF 생성 실패: ${err?.message || err}`);
     }
   };  // --- RENDER LOGIC ---
 
@@ -1149,8 +1146,60 @@ export default function Home() {
   return (
     <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}>
       <div style={styles.pageContainer}>
+        {/* Toggle Chat Button - Outside chat column */}
+        <button
+          onClick={() => setChatColumnOpen(!chatColumnOpen)}
+          style={{
+            position: 'fixed',
+            left: chatColumnOpen ? '450px' : '8px',
+            top: '50%',
+            // When open: center the button on the sidebar boundary.
+            // When closed: keep it fully visible with a small left margin.
+            transform: chatColumnOpen ? 'translate(-50%, -50%)' : 'translateY(-50%)',
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: '#2563eb',
+            color: '#fff',
+            border: 'none',
+            fontSize: 16,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+            transition: 'left var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease)',
+          }}
+          title={chatColumnOpen ? '채팅 닫기' : '채팅 열기'}
+        >
+          {chatColumnOpen ? '‹' : '›'}
+        </button>
         {/* Left Column: Chat */}
-        <div style={styles.chatColumn}>
+        <div
+          style={{
+            position: 'relative',
+            height: '100vh',
+            flex: chatColumnOpen ? '0 0 450px' : '0 0 0px',
+            transition: 'flex-basis var(--ios-dur) var(--ios-ease)',
+          }}
+        >
+          <div style={{
+            ...styles.chatColumn,
+            width: '450px',
+            minWidth: '450px',
+            padding: '19.2px',
+            borderRight: '1px solid #e9ecef',
+            transition: 'transform var(--ios-dur) var(--ios-ease)',
+            overflow: 'hidden',
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            flexShrink: 0,
+            pointerEvents: chatColumnOpen ? 'auto' : 'none',
+            transform: chatColumnOpen ? 'translateX(0)' : 'translateX(-450px)'
+          }}>
           <div style={styles.chatHeader}>
             <h1 style={styles.chatTitle}>Tripdom</h1>
             <div style={styles.authContainer}>
@@ -1208,41 +1257,11 @@ export default function Home() {
             />
             <button type="submit" disabled={busy} style={styles.sendButton}>전송</button>
           </form>
+          </div>
         </div>
 
         {/* Right Column: Trip Details & Map */}
         <div style={styles.tripColumn}>
-          {/* Top-right global actions for starting a new trip */}
-          <div style={{ position: 'absolute', top: 8, right: 20, display: 'flex', gap: 8, zIndex: 20 }}>
-            <button
-              onClick={() => {
-                if (!confirm('현재 일정을 초기화하고 새로 시작하시겠습니까?')) return;
-                setTripResult(null);
-                setExtracted({});
-                setCurrentTripId(null);
-                autoGenDoneRef.current = false;
-                setMsgs([
-                  { role: 'assistant', content: '새 여행을 시작합니다! 목적지와 기간을 말씀해주세요.' }
-                ]);
-                setSelectedDay(null);
-                localStorage.removeItem('tripdom-last-trip');
-                localStorage.removeItem('tripdom-last-extracted');
-                setError(null);
-                setRestoredFromLocal(false);
-              }}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                background: '#0d6efd',
-                color: '#fff',
-                border: 'none',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.12)'
-              }}
-            >🔄 새 일정 시작</button>
-          </div>
           {isLoading && (
             <div style={styles.tripLoading}>
               <div style={styles.travelAnimation}>
@@ -1263,70 +1282,266 @@ export default function Home() {
           )}
 
           {!isLoading && !tripResult && (
-            <div style={styles.tripWelcome}>
-              <h2>Tripdom에 오신 것을 환영합니다!</h2>
-              <p>왼쪽 채팅창에 여행하고 싶은 곳과 기간을 알려주세요.</p>
-              <p>예: "부산 2박 3일 여행"</p>
+            <div style={{ ...styles.tripWelcome, maxWidth: 840, width: '100%' }}>
+              <div
+                style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 20,
+                  padding: '28px 28px 22px',
+                  boxShadow: '0 18px 50px rgba(15, 23, 42, 0.06)',
+                }}
+              >
+                <h2 style={{ ...styles.welcomeTitle, marginBottom: 12 }}>어디로 떠나시나요?</h2>
+                <p style={{ ...styles.welcomeText, marginBottom: 18 }}>
+                  Tripdom AI가 당신만을 위한 완벽한 여행 일정을 설계해드립니다.<br />
+                  목적지와 기간만 알려주세요.
+                </p>
+
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  {['제주도 2박 3일 힐링 여행', '오사카 3박 4일 맛집 투어', '파리 5박 6일 예술 기행', '뉴욕 4박 5일 쇼핑 여행'].map((prompt, idx) => (
+                    <button
+                      key={idx}
+                      style={styles.quickPromptChip}
+                      onClick={() => {
+                        setInput(prompt);
+                        setChatColumnOpen(true);
+                        setTimeout(() => chatInputRef.current?.focus(), 120);
+                      }}
+                    >
+                      ✨ {prompt}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Simple Features */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: 18,
+                    marginTop: 22,
+                    paddingTop: 18,
+                    borderTop: '1px solid #f1f5f9',
+                  }}
+                >
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 34, marginBottom: 8 }}>🎯</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>AI 맞춤 일정</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>목적지/기간만 알려주세요</div>
+                  </div>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 34, marginBottom: 8 }}>⏱️</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>자동 최적화</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>효율적인 동선으로 배치</div>
+                  </div>
+
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 34, marginBottom: 8 }}>💰</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 6 }}>예산 관리</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>실시간 비용 추적/요약</div>
+                  </div>
+                </div>
+
+                {/* Mini Cards */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                    gap: 14,
+                    marginTop: 18,
+                  }}
+                >
+                  <div
+                    style={{
+                      textAlign: 'left',
+                      padding: '14px 16px',
+                      borderRadius: 14,
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+                      말하는 법 (예시)
+                    </div>
+                    <div style={{ display: 'grid', gap: 8, fontSize: 13, color: '#475569', lineHeight: 1.45 }}>
+                      <div>• “부산 2박 3일, 맛집+바다, 아이와 함께”</div>
+                      <div>• “도쿄 3박 4일, 쇼핑 중심, 대중교통”</div>
+                      <div>• “제주 1박 2일, 렌트카, 여유롭게”</div>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      textAlign: 'left',
+                      padding: '14px 16px',
+                      borderRadius: 14,
+                      background: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+                      결과 미리보기
+                    </div>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {[
+                        { t: '10:00', p: '숙소 체크인/이동' },
+                        { t: '12:00', p: '점심 & 주변 산책' },
+                        { t: '15:00', p: '핵심 명소 1곳' },
+                      ].map((row, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '8px 10px',
+                            borderRadius: 10,
+                            background: '#ffffff',
+                            border: '1px solid #eef2f7',
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 800, color: '#2563eb', width: 48 }}>{row.t}</div>
+                          <div style={{ fontSize: 13, color: '#334155' }}>{row.p}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 14, fontSize: 12.5, color: '#64748b' }}>
+                  Tip) “대중교통/도보/차량”을 함께 말해주면 더 정확해요.
+                </div>
+              </div>
             </div>
           )}
 
           {tripResult && (
             <div style={styles.tripResultContainer} ref={printRef}>
-              <TripSummaryBar
-                trip={tripResult}
-                meta={summaryMeta}
-                budget={budgetStats}
-                travelMode={travelMode}
-                status={{ ready, busy, isLoading, error }}
-                restoredFromLocal={restoredFromLocal}
-                onDismissRestore={() => setRestoredFromLocal(false)}
-                onClearError={() => setError(null)}
-              />
-              <div style={styles.tripHeader}>
-                <h2>{tripResult.tripTitle}</h2>
-                <div style={styles.tripMeta}>
-                  <span>📍 {tripResult.destination}</span>
-                  <span>🗓️ {tripResult.period}</span>
-                  <span>🏷️ {tripResult.keywords}</span>
-                </div>
-                <div style={styles.tripActions}>
-                  {currentUser && <button style={styles.primaryBtn} onClick={handleSaveTrip}>💾 저장</button>}
-                  {currentUser && currentTripId && <button style={styles.primaryBtn} onClick={handleShare}>🔗 공유</button>}
-                  <button style={styles.primaryBtn} onClick={handleExportPDF}>📄 PDF</button>
-                  <button style={styles.outlineBtn} onClick={handleAutoBalanceCategories} disabled={isLoading}>
-                    ⚖️ 카테고리 균형
-                  </button>
-                </div>
-                {tripResult.destination && (() => {
-                  const cityProfile = getCityProfile(tripResult.destination);
-                  const cityDesc = getCityDescription(cityProfile);
-                  const recommended = getRecommendedMode(cityProfile);
-                  return (
-                    <div style={{ fontSize: 12, color: '#666', marginTop: 8, padding: '8px 12px', backgroundColor: '#f0f8ff', borderRadius: 6 }}>
-                      <strong>🌍 지역 정보:</strong> {cityDesc}
-                      {recommended && ` | 추천 이동수단: ${recommended === 'DRIVE' ? '차량' : recommended === 'TRANSIT' ? '대중교통' : '도보'}`}
-                    </div>
-                  );
-                })()}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 8 }}>
-                  <label style={{ fontSize: 13 }}>
-                    이동수단:
-                    <select value={travelMode} onChange={(e) => setTravelMode(e.target.value)} style={{ marginLeft: 6 }}>
-                      <option value="DRIVE">차량</option>
-                      <option value="WALK">도보</option>
-                      <option value="TRANSIT">대중교통</option>
-                    </select>
-                  </label>
-                  <label style={{ fontSize: 13 }}>
-                    <input type="checkbox" checked={autoOptimizeAfterReplace} onChange={(e) => setAutoOptimizeAfterReplace(e.target.checked)} style={{ marginRight: 6 }} />
-                    교체 후 자동 최적화
-                  </label>
-                  <label style={{ fontSize: 13 }}>
-                    <input type="checkbox" checked={autoReassignAfterOptimize} onChange={(e) => setAutoReassignAfterOptimize(e.target.checked)} style={{ marginRight: 6 }} />
-                    최적화 후 시간 재배열
-                  </label>
-                </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowSummaryPanel(v => !v)}
+                  style={{
+                    ...styles.outlineBtn,
+                    background: showSummaryPanel ? '#0d6efd' : '#ffffff',
+                    color: showSummaryPanel ? '#ffffff' : '#475569',
+                    border: `1px solid ${showSummaryPanel ? '#0d6efd' : '#cbd5e1'}`,
+                  }}
+                >요약</button>
+                <button
+                  type="button"
+                  onClick={() => setShowAnalysisPanel(v => !v)}
+                  style={{
+                    ...styles.outlineBtn,
+                    background: showAnalysisPanel ? '#0d6efd' : '#ffffff',
+                    color: showAnalysisPanel ? '#ffffff' : '#475569',
+                    border: `1px solid ${showAnalysisPanel ? '#0d6efd' : '#cbd5e1'}`,
+                  }}
+                >일정분석</button>
+                <button
+                  type="button"
+                  onClick={() => setShowMapPanel(v => !v)}
+                  style={{
+                    ...styles.outlineBtn,
+                    background: showMapPanel ? '#0d6efd' : '#ffffff',
+                    color: showMapPanel ? '#ffffff' : '#475569',
+                    border: `1px solid ${showMapPanel ? '#0d6efd' : '#cbd5e1'}`,
+                  }}
+                >지도</button>
               </div>
+
+              {showSummaryPanel && (
+                <TripSummaryBar
+                  trip={tripResult}
+                  meta={summaryMeta}
+                  budget={budgetStats}
+                  travelMode={travelMode}
+                  status={{ ready, busy, isLoading, error }}
+                  restoredFromLocal={restoredFromLocal}
+                  onDismissRestore={() => setRestoredFromLocal(false)}
+                  onClearError={() => setError(null)}
+                  onNewTrip={() => {
+                    if (!confirm('현재 일정을 초기화하고 새로 시작하시겠습니까?')) return;
+                    setTripResult(null);
+                    setExtracted({});
+                    setCurrentTripId(null);
+                    autoGenDoneRef.current = false;
+                    setMsgs([
+                      { role: 'assistant', content: '새 여행을 시작합니다! 목적지와 기간을 말씀해주세요.' }
+                    ]);
+                    setSelectedDay(null);
+                    localStorage.removeItem('tripdom-last-trip');
+                    localStorage.removeItem('tripdom-last-extracted');
+                    setError(null);
+                    setRestoredFromLocal(false);
+                  }}
+                  extra={(
+                    <>
+                      <div style={styles.tripActions}>
+                        {currentUser ? (
+                          <>
+                            <button style={styles.primaryBtn} onClick={handleSaveTrip}>
+                              <span>💾</span> 저장하기
+                            </button>
+                            {currentTripId && (
+                              <button style={styles.outlineBtn} onClick={handleShare}>
+                                <span>🔗</span> 공유하기
+                              </button>
+                            )}
+                          </>
+                        ) : (
+                          <button style={styles.primaryBtn} onClick={() => setShowAuthModal(true)}>
+                            <span>🔒</span> 로그인하여 저장
+                          </button>
+                        )}
+
+                        <div style={{ width: '1px', height: '24px', background: '#e2e8f0', margin: '0 8px' }}></div>
+
+                        <button style={styles.outlineBtn} onClick={handleExportPDF}>
+                          <span>📄</span> PDF 다운로드
+                        </button>
+                      </div>
+
+                      {tripResult.destination && (() => {
+                        const cityProfile = getCityProfile(tripResult.destination);
+                        const cityDesc = getCityDescription(cityProfile);
+                        const recommended = getRecommendedMode(cityProfile);
+                        return (
+                          <div style={{ fontSize: 12, color: '#666', marginTop: 8, padding: '8px 12px', backgroundColor: '#f0f8ff', borderRadius: 6 }}>
+                            <strong>🌍 지역 정보:</strong> {cityDesc}
+                            {recommended && ` | 추천 이동수단: ${recommended === 'DRIVE' ? '차량' : recommended === 'TRANSIT' ? '대중교통' : '도보'}`}
+                          </div>
+                        );
+                      })()}
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginTop: 8 }}>
+                        <label style={{ fontSize: 13 }}>
+                          이동수단:
+                          <select value={Array.isArray(travelMode) ? travelMode[0] : (travelMode || 'DRIVE')} onChange={(e) => setTravelMode(e.target.value)} style={{ marginLeft: 6 }}>
+                            <option value="DRIVE">차량</option>
+                            <option value="WALK">도보</option>
+                            <option value="TRANSIT">대중교통</option>
+                          </select>
+                        </label>
+                        <label style={{ fontSize: 13 }}>
+                          <input type="checkbox" checked={autoOptimizeAfterReplace} onChange={(e) => setAutoOptimizeAfterReplace(e.target.checked)} style={{ marginRight: 6 }} />
+                          교체 후 자동 최적화
+                        </label>
+                        <label style={{ fontSize: 13 }}>
+                          <input type="checkbox" checked={autoReassignAfterOptimize} onChange={(e) => setAutoReassignAfterOptimize(e.target.checked)} style={{ marginRight: 6 }} />
+                          최적화 후 시간 재배열
+                        </label>
+                      </div>
+                    </>
+                  )}
+                />
+              )}
+
+              {showAnalysisPanel && (
+                <TripAnalysis trip={tripResult} travelMode={travelMode as TravelMode} onOptimize={handleOptimize} />
+              )}
 
               <div style={styles.tripBody}>
                 <div style={styles.itineraryPane}>
@@ -1372,45 +1587,66 @@ export default function Home() {
                     ))}
                   </DndContext>
                 </div>
-                <div style={printing ? { ...styles.mapPane, display: 'none' } : styles.mapPane}>
-                  <div style={styles.mapDayFilter}>
-                    <button
-                      onClick={() => setSelectedDay(null)}
-                      style={{
-                        padding: '6px 12px',
-                        border: '1px solid #ced4da',
-                        borderRadius: 6,
-                        background: selectedDay === null ? '#0d6efd' : '#ffffff',
-                        color: selectedDay === null ? '#ffffff' : '#000000',
-                        cursor: 'pointer',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                <div
+                  style={printing
+                    ? { ...styles.mapPane, display: 'none' }
+                    : {
+                        ...styles.mapPane,
+                        flex: '0 0 auto',
+                        flexBasis: showMapPanel ? 'min(420px, 34vw)' : '0px',
+                        minWidth: showMapPanel ? '300px' : '0px',
+                        marginLeft: showMapPanel ? '16px' : '0px',
+                        opacity: showMapPanel ? 1 : 0,
+                        transform: showMapPanel ? 'translateX(0)' : 'translateX(16px)',
+                        pointerEvents: showMapPanel ? 'auto' : 'none',
+                        border: showMapPanel ? (styles.mapPane as any).border : '0px solid transparent',
+                        boxShadow: showMapPanel ? (styles.mapPane as any).boxShadow : 'none',
+                        borderRadius: showMapPanel ? (styles.mapPane as any).borderRadius : 0,
+                        transition:
+                          'flex-basis var(--ios-dur) var(--ios-ease), margin-left var(--ios-dur) var(--ios-ease), opacity var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease), box-shadow var(--ios-dur) var(--ios-ease), border-radius var(--ios-dur) var(--ios-ease)',
+                        willChange: 'flex-basis, margin-left, opacity, transform',
                       }}
-                    >All</button>
-                    {tripResult.days.map(d => {
-                      const active = selectedDay === d.day;
-                      return (
-                        <button
-                          key={d.day}
-                          onClick={() => setSelectedDay(d.day)}
-                          style={{
-                            padding: '6px 12px',
-                            border: '1px solid #ced4da',
-                            borderRadius: 6,
-                            background: active ? '#0d6efd' : '#ffffff',
-                            color: active ? '#ffffff' : '#000000',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            fontWeight: 600,
-                            boxShadow: active ? '0 1px 4px rgba(0,0,0,0.12)' : '0 1px 2px rgba(0,0,0,0.05)'
-                          }}
-                        >Day {d.day}</button>
-                      );
-                    })}
+                >
+                  <div style={styles.mapDayFilter}>
+                      <button
+                        onClick={() => setSelectedDay(null)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #ced4da',
+                          borderRadius: 6,
+                          background: selectedDay === null ? '#0d6efd' : '#ffffff',
+                          color: selectedDay === null ? '#ffffff' : '#000000',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                        }}
+                      >All</button>
+                      {tripResult.days.map(d => {
+                        const active = selectedDay === d.day;
+                        return (
+                          <button
+                            key={d.day}
+                            onClick={() => setSelectedDay(d.day)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #ced4da',
+                              borderRadius: 6,
+                              background: active ? '#0d6efd' : '#ffffff',
+                              color: active ? '#ffffff' : '#000000',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              boxShadow: active ? '0 1px 4px rgba(0,0,0,0.12)' : '0 1px 2px rgba(0,0,0,0.05)'
+                            }}
+                          >Day {d.day}</button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                      <TripMap days={tripResult.days} selectedDay={selectedDay} />
+                    </div>
                   </div>
-                  <TripMap days={tripResult.days} selectedDay={selectedDay} />
-                </div>
               </div>
             </div>
           )}
@@ -1460,478 +1696,9 @@ export default function Home() {
 }
 
 
-// --- STYLES ---
 
-const SCALE = 1.0; // 전체 UI를 100% 크기로 유지
 
-// 모든 숫자 값을 스케일에 맞게 조정하는 헬퍼 함수
-const scaleValue = (value: string | number): string => {
-  if (typeof value === 'number') return `${value * SCALE}px`;
-  if (typeof value === 'string') {
-    const match = value.match(/^(\d+(?:\.\d+)?)(px|rem|em)$/);
-    if (match) {
-      const [, num, unit] = match;
-      return `${parseFloat(num) * SCALE}${unit}`;
-    }
-  }
-  return value;
-};
 
-// 스타일 객체의 모든 크기 관련 속성을 스케일링
-const scaleStyles = (styles: React.CSSProperties): React.CSSProperties => {
-  const scaled: any = {};
-  const sizeProps = ['fontSize', 'padding', 'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 
-                     'paddingTop', 'paddingBottom', 'paddingLeft', 'paddingRight', 'gap', 'borderRadius',
-                     'width', 'height', 'maxWidth', 'maxHeight', 'minWidth', 'minHeight', 'top', 'right', 'bottom', 'left'];
-  
-  for (const [key, value] of Object.entries(styles)) {
-    if (sizeProps.includes(key) && (typeof value === 'string' || typeof value === 'number')) {
-      scaled[key] = scaleValue(value);
-    } else {
-      scaled[key] = value;
-    }
-  }
-  return scaled;
-};
 
-const rawStyles: { [key: string]: React.CSSProperties } = {
-  pageContainer: {
-    display: 'grid',
-    gridTemplateColumns: '450px 1fr',
-    height: '100vh',
-    fontFamily: "'Pretendard', sans-serif",
-    backgroundColor: '#f8f9fa',
-  },
-  chatColumn: {
-    display: 'flex',
-    flexDirection: 'column',
-    backgroundColor: '#ffffff',
-    borderRight: '1px solid #e9ecef',
-    padding: '20px',
-    height: '100vh',
-    boxSizing: 'border-box',
-    color: '#000000',
-  },
-  chatHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '20px',
-  },
-  chatTitle: {
-    margin: 0,
-    fontSize: '24px',
-    fontWeight: 800,
-    color: '#1b1f24',
-  },
-  authContainer: {},
-  authButton: {
-    padding: '8px 12px',
-    background: '#3b82f6',
-    color: 'white',
-    border: '1px solid #2b6ed6',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 'bold',
-  },
-  chatMessagesContainer: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '0 10px',
-    marginBottom: '10px',
-  },
-  messageBubble: {
-    maxWidth: '85%',
-    padding: '14px 18px',
-    // 개별 코너로 지정하여 userBubble/assistantBubble에서 일부 코너만 덮어쓸 때 충돌 방지
-    borderTopLeftRadius: '18px',
-    borderTopRightRadius: '18px',
-    borderBottomRightRadius: '18px',
-    borderBottomLeftRadius: '18px',
-    lineHeight: 1.6,
-    marginBottom: '14px',
-    wordBreak: 'break-word',
-    fontSize: '14px',
-    letterSpacing: '-0.2px',
-    whiteSpace: 'pre-line'
-  },
-  userBubble: {
-    backgroundColor: '#d7ecff',
-    color: '#000000',
-    marginLeft: 'auto',
-    borderBottomRightRadius: '4px',
-  },
-  assistantBubble: {
-    background: 'linear-gradient(135deg,#f5f7fa 0%,#eef2f6 100%)',
-    color: '#111',
-    marginRight: 'auto',
-    borderBottomLeftRadius: '4px',
-    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-    border: '1px solid #e3e7eb'
-  },
-  savedTripsContainer: {
-    borderTop: '1px solid #e9ecef',
-    paddingTop: '10px',
-  },
-  savedTripsSummary: {
-    cursor: 'pointer',
-    fontWeight: 600,
-    fontSize: '14px',
-    color: '#495057',
-  },
-  savedTripsList: {
-    maxHeight: '150px',
-    overflowY: 'auto',
-    marginTop: '10px',
-  },
-  savedTripItem: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '8px',
-    borderBottom: '1px solid #f1f3f5',
-    fontSize: '14px',
-  },
-  loadButton: {
-    padding: '4px 8px',
-    fontSize: '12px',
-    background: '#17a2b8',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-  },
-  deleteTripButton: {
-    padding: '4px 8px',
-    fontSize: '12px',
-    background: '#dc3545',
-    color: 'white',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    marginLeft: '8px',
-  },
-  chatInputForm: {
-    display: 'flex',
-    gap: '10px',
-    marginTop: '10px',
-  },
-  chatInput: {
-    flex: 1,
-    padding: '12px',
-    border: '1px solid #dee2e6',
-    borderRadius: '8px',
-    fontSize: '14px',
-    color: '#000000',
-    backgroundColor: '#ffffff',
-  },
-  sendButton: {
-    padding: '12px 16px',
-    background: '#007bff',
-    color: 'white',
-    border: '1px solid #0067d6',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 'bold',
-    boxShadow: '0 1px 2px rgba(0,0,0,0.08)'
-  },
-  tripColumn: {
-    height: '100vh',
-    overflowY: 'auto',
-    padding: '20px',
-    boxSizing: 'border-box',
-    color: '#000000',
-  },
-  tripLoading: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100%',
-    color: '#495057',
-  },
-  travelAnimation: {
-    position: 'relative',
-    width: '200px',
-    height: '200px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  globe: {
-    width: '120px',
-    height: '120px',
-    borderRadius: '50%',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0 8px 32px rgba(102, 126, 234, 0.3)',
-    animation: 'rotateGlobe 8s linear infinite',
-  },
-  globeInner: {
-    fontSize: '64px',
-    animation: 'rotateGlobe 8s linear infinite',
-  },
-  airplane: {
-    position: 'absolute',
-    fontSize: '36px',
-    animation: 'floatPlane 3s ease-in-out infinite',
-    filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.2))',
-  },
-  tripError: {
-    padding: '20px',
-    margin: 'auto',
-    maxWidth: '400px',
-    textAlign: 'center',
-    backgroundColor: '#f8d7da',
-    borderRadius: '8px',
-  },
-  tripWelcome: {
-    textAlign: 'center',
-    margin: 'auto',
-    color: '#495057',
-  },
-  tripResultContainer: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100%',
-  },
-  tripHeader: {
-    marginBottom: '20px',
-    paddingBottom: '20px',
-    borderBottom: '1px solid #e9ecef',
-  },
-  tripMeta: {
-    display: 'flex',
-    gap: '16px',
-    color: '#6c757d',
-    marginTop: '10px',
-  },
-  tripActions: {
-    display: 'flex',
-    gap: '10px',
-    marginTop: '15px',
-  },
-  primaryBtn: {
-    padding: '8px 12px',
-    background: '#0d6efd',
-    color: '#fff',
-    border: '1px solid #0b5ed7',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 600,
-    boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-  },
-  outlineBtn: {
-    padding: '8px 12px',
-    background: '#ffffff',
-    color: '#0d6efd',
-    border: '1px solid #0d6efd',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: 600
-  },
-  totalBudgetText: {
-    fontSize: '18px',
-    fontWeight: 'bold',
-    color: '#1f7a2e',
-    marginTop: '15px',
-  },
-  tripBody: {
-    flex: 1,
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '20px',
-    minHeight: 0,
-  },
-  itineraryPane: {
-    overflowY: 'auto',
-    paddingRight: '10px',
-  },
-  mapPane: {
-    position: 'sticky',
-    top: '20px',
-    height: 'calc(100vh - 60px)',
-  },
-  mapDayFilter: {
-    display: 'flex',
-    gap: '8px',
-    marginBottom: '10px',
-    flexWrap: 'wrap'
-  },
-  dayContainer: {
-    background: '#ffffff',
-    borderRadius: '12px',
-    padding: '16px',
-    boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
-    border: '1px solid #edf2f7',
-    marginBottom: '30px',
-  },
-  dayHeaderRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '12px',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    marginBottom: '8px',
-  },
-  dayTitleGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  dayTitle: {
-    margin: 0,
-    fontSize: '18px',
-    fontWeight: 700,
-    color: '#1b1f24',
-  },
-  dayBudget: {
-    fontSize: '13px',
-    color: '#495057',
-  },
-  dayActions: {
-    display: 'flex',
-    gap: '8px',
-    marginBottom: '12px',
-  },
-  itineraryList: {
-    listStyle: 'none',
-    padding: 0,
-  },
-  itineraryItem: {
-    position: 'relative',
-    marginBottom: '15px',
-    background: 'white',
-    padding: '15px',
-    borderRadius: '8px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-    border: '1px solid #e9ecef',
-  },
-  itemHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    marginBottom: '10px',
-  },
-  itemTime: {
-    background: '#eef6ff',
-    color: '#005fcc',
-    padding: '5px 10px',
-    borderRadius: '15px',
-    marginRight: '10px',
-    fontSize: '14px',
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  placeName: {
-    fontWeight: 'bold',
-    fontSize: '16px',
-    flex: 1,
-  },
-  dragHandle: {
-    cursor: 'grab',
-    padding: '5px',
-    color: '#6c757d',
-  },
-  itemDescription: {
-    margin: '8px 0',
-    color: '#495057',
-    fontSize: '14px',
-    cursor: 'pointer',
-    whiteSpace: 'pre-wrap',
-  },
-  inlineInput: {
-    border: '1px solid #007bff',
-    outline: 'none',
-    background: '#eef6ff',
-    width: '80px',
-    textAlign: 'center',
-  },
-  inlineTextarea: {
-    width: '100%',
-    border: '1px solid #007bff',
-    borderRadius: '4px',
-    padding: '8px',
-    fontSize: '14px',
-    minHeight: '60px',
-    resize: 'vertical',
-  },
-  itemReason: {
-    margin: '8px 0',
-    background: '#f1f3f5',
-    padding: '8px',
-    borderRadius: '4px',
-    fontSize: '13px',
-  },
-  detailsContainer: {
-    marginTop: '10px',
-    fontSize: '13px',
-    color: '#343a40',
-  },
-  detailItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    marginBottom: '5px',
-  },
-  detailIcon: {
-    fontSize: '16px',
-  },
-  expenseInput: {
-    width: '100px',
-    padding: '4px',
-    border: '1px solid #007bff',
-    borderRadius: '4px',
-  },
-  expenseText: {
-    cursor: 'pointer',
-    color: '#007bff',
-    fontWeight: 'bold',
-  },
-  itemActions: {
-    position: 'absolute',
-    top: '10px',
-    right: '10px',
-    display: 'flex',
-    gap: '5px',
-  },
-  actionButton: {
-    background: 'transparent',
-    border: '1px solid #adb5bd',
-    color: '#495057',
-    fontSize: '12px',
-    cursor: 'pointer',
-    padding: '4px 6px',
-    borderRadius: '6px',
-  },
-  deleteButton: {
-    background: 'transparent',
-    border: 'none',
-    color: '#dc3545',
-    fontSize: '20px',
-    cursor: 'pointer',
-  },
 
-  addPlaceButton: {
-    width: '100%',
-    padding: '10px',
-    marginTop: '10px',
-    border: '2px dashed #007bff',
-    borderRadius: '8px',
-    background: 'rgba(0, 123, 255, 0.05)',
-    color: '#007bff',
-    fontSize: '14px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-  },
-};
 
-// 모든 스타일을 80% 스케일로 적용
-const styles = Object.fromEntries(
-  Object.entries(rawStyles).map(([key, value]) => [key, scaleStyles(value)])
-);

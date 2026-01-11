@@ -1,7 +1,7 @@
 // components/ShareModal.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface ShareModalProps {
   shareUrl: string;
@@ -9,7 +9,22 @@ interface ShareModalProps {
 }
 
 export default function ShareModal({ shareUrl, onClose }: ShareModalProps) {
+  const [uiState, setUiState] = useState<'open' | 'closed'>('closed');
+  const closeTimeoutRef = useRef<number | null>(null);
   const [copySuccess, setCopySuccess] = useState('');
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => setUiState('open'));
+    return () => {
+      window.cancelAnimationFrame(id);
+      if (closeTimeoutRef.current) window.clearTimeout(closeTimeoutRef.current);
+    };
+  }, []);
+
+  const requestClose = () => {
+    setUiState('closed');
+    closeTimeoutRef.current = window.setTimeout(() => onClose(), 220);
+  };
 
   const handleCopy = async () => {
     try {
@@ -32,8 +47,8 @@ export default function ShareModal({ shareUrl, onClose }: ShareModalProps) {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className="ios-modal-overlay" data-state={uiState} style={styles.overlay} onClick={requestClose}>
+      <div className="ios-modal-panel" style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <h2 style={styles.title}>공유 링크 생성 완료 🔗</h2>
         <p>아래 링크를 통해 누구나 이 여행 일정을 볼 수 있습니다.</p>
         <div style={styles.inputContainer}>

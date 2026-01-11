@@ -37,9 +37,25 @@ export async function ensureFreshToken(): Promise<void> {
 }
 
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-	const token = getStoredToken();
-	const headers = new Headers(init.headers || {});
-	if (token) headers.set('Authorization', `Bearer ${token}`);
-	return fetch(input, { ...init, headers });
+	let token = getStoredToken();
+	const makeHeaders = (t: string | null) => {
+		const h = new Headers(init.headers || {});
+		if (t) h.set('Authorization', `Bearer ${t}`);
+		return h;
+	};
+
+	let resp = await fetch(input, { ...init, headers: makeHeaders(token) });
+
+	// 401 Unauthorized 발생 시 토큰 갱신 시도
+	if (resp.status === 401) {
+		await ensureFreshToken();
+		token = getStoredToken();
+		if (token) {
+			// 새 토큰으로 재시도
+			resp = await fetch(input, { ...init, headers: makeHeaders(token) });
+		}
+	}
+
+	return resp;
 }
 

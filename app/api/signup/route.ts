@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '데이터베이스가 설정되지 않았습니다.' }, { status: 503 });
     }
 
-    const { email, password, nickname } = await req.json();
+    const { email, password, nickname, marketingConsent } = await req.json();
 
     if (!email || !password || !nickname) {
       return NextResponse.json({ error: '이메일, 비밀번호, 닉네임을 모두 입력해주세요.' }, { status: 400 });
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
       data: {
         email: email,
         password: hashedPassword,
-        nickname: nickname, // 닉네임 저장
+        nickname: nickname,
+        marketingConsent: !!marketingConsent, // boolean 변환
       },
     });
 

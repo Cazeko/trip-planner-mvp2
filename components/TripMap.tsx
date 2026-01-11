@@ -111,13 +111,13 @@ export default function TripMap({ days, selectedDay = null }: TripMapProps) {
 
   const legendStyles: React.CSSProperties = {
     position: 'absolute',
-    top: '10px',
+    bottom: '10px',
     left: '10px',
     background: 'rgba(255, 255, 255, 0.9)',
     padding: '10px',
     borderRadius: '8px',
     boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-    zIndex: 1,
+    zIndex: 2,
     fontFamily: 'sans-serif',
     fontSize: '14px',
   };
@@ -137,7 +137,7 @@ export default function TripMap({ days, selectedDay = null }: TripMapProps) {
   });
 
   return (
-    <div style={{ position: 'relative', height: '500px', width: '100%', marginTop: '20px', borderRadius: '8px', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', height: '100%', width: '100%', borderRadius: '8px', overflow: 'hidden' }}>
        <div style={legendStyles}>
          <h4 style={{margin: '0 0 10px 0'}}>경로 안내</h4>
          {filteredDays.map((day, index) => (

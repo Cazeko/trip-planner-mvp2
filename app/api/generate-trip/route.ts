@@ -37,7 +37,7 @@ async function getPlaceDetails(placeName: string, lat: number, lng: number): Pro
   const headers = {
     'Content-Type': 'application/json',
     'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
-    'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.websiteUri,places.rating,places.regularOpeningHours,places.reviews'
+    'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.internationalPhoneNumber,places.websiteUri,places.rating,places.regularOpeningHours,places.reviews,places.photos'
   };
 
   try {
@@ -70,7 +70,23 @@ async function getPlaceDetails(placeName: string, lat: number, lng: number): Pro
       const place = scoredPlaces[0].place;
       console.log(`[Google Places API] Selected place with score ${scoredPlaces[0].score}:`, place.displayName?.text || placeName);
       
+      // photos 구조 확인
+      if (place.photos && place.photos.length > 0) {
+        console.log('[Google Places API] Photo structure:', JSON.stringify(place.photos[0], null, 2));
+      }
+      
       // displayName.text를 명시적으로 추출하여 반환
+      let photoUrl = null;
+      if (place.photos && place.photos.length > 0 && place.photos[0].name) {
+        const photoName = place.photos[0].name;
+        // photoName이 이미 전체 경로인지 확인
+        if (photoName.startsWith('places/')) {
+          photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=400&key=${GOOGLE_MAPS_API_KEY}`;
+        } else {
+          photoUrl = `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=400&key=${GOOGLE_MAPS_API_KEY}`;
+        }
+      }
+      
       const details = {
         formattedAddress: place.formattedAddress || null,
         internationalPhoneNumber: place.internationalPhoneNumber || null,
@@ -78,8 +94,9 @@ async function getPlaceDetails(placeName: string, lat: number, lng: number): Pro
         rating: place.rating || null,
         regularOpeningHours: place.regularOpeningHours || null,
         reviews: place.reviews || null,
+        photoUrl,
       };
-      console.log(`[Google Places API] Extracted details:`, JSON.stringify(details, null, 2));
+      console.log(`[Google Places API] Final photoUrl:`, photoUrl);
       return details;
     } else {
       console.warn(`[Google Places API] Warning: No results found for "${placeName}"`);
@@ -106,7 +123,7 @@ function parsePeriodToDays(period?: string): number {
 
 export async function POST(req: Request) {
   try {
-    const { destination, period, keywords, preferredTransport } = await req.json();
+    const { destination, period, keywords, preferredTransport, include } = await req.json();
     const dayCount = parsePeriodToDays(period);
 
     const prompt = `
@@ -119,11 +136,14 @@ export async function POST(req: Request) {
          - 하루 일정은 09:00 시작, 21:00 종료 (밤 9시까지만)
          - 절대로 22:00(밤 10시) 이후 일정을 만들지 마세요
          - 새벽 시간(00:00~06:00)에 일정을 절대 배치하지 마세요
+         - 하루에 방문지는 5~7개로 제한하여 여유로운 일정을 만드세요. (너무 빡빡하지 않게)
       
       2. **식사 시간 규칙 (절대 엄수)**:
-         - 아침 식사: 09:00~10:30 사이 (반드시 이 시간대에만)
-         - 점심 식사: 12:00~13:30 사이 (반드시 이 시간대에만)
-         - 저녁 식사: 18:00~20:00 사이 (반드시 이 시간대에만)
+         - 하루에 식사는 아침, 점심, 저녁 딱 3번만 배치하세요. (간식은 카페로 대체)
+         - 아침 식사: 09:00~10:30 사이
+         - 점심 식사: 12:00~13:30 사이
+         - 저녁 식사: 18:00~19:30 사이
+         - 식사 직후(1시간 이내)에 또 다른 식사를 배치하지 마세요.
          - 식당이 아닌 관광지를 식당이라고 거짓으로 표기하지 마세요
          - 예시: "이치란 라멘", "스시 사에키", "자갈치시장", "구로몬시장"
       
@@ -135,7 +155,7 @@ export async function POST(req: Request) {
       4. **영업시간 규칙**:
          - 수족관, 박물관, 놀이공원: 10:00~18:00 사이에만 방문
          - 이런 장소들은 최소 2~3시간 체류 시간 확보
-         - 밤 시간(20:00 이후)에는 야경, 바, 야시장만 가능
+         - 밤 시간(20:00 이후)에는 야경, 바, 야시장, 라이브 공연 등 밤 문화를 즐길 수 있는 곳을 반드시 배치하세요. (22:00 종료)
       
       5. **중복 방지 규칙**:
          - 전체 일정에서 같은 장소를 두 번 이상 방문하지 마세요
@@ -146,6 +166,12 @@ export async function POST(req: Request) {
          - 반드시 "실제로 존재하는 Google Maps에서 검색 가능한 정확한 상호명" 사용
          - 좋은 예: "오사카 수족관 카이유칸", "도톤보리", "이치란 라멘 도톤보리점"
          - 나쁜 예: "조용한 카페", "전망 좋은 레스토랑"
+
+      7. **테마별 밸런스 규칙 (키워드 반영)**:
+         - 사용자가 입력한 키워드('${keywords}')를 분석하여 비중을 조절하세요.
+         - '맛집', '식도락', '먹방', '카페' 관련 키워드가 있다면: 식사와 카페 방문 비중을 높이고(하루 4~5곳), 유명한 맛집 위주로 구성하세요.
+         - '관광', '유적', '자연', '액티비티' 관련 키워드가 있다면: 관광지 비중을 높이고, 식사는 동선 상의 효율적인 곳으로 배치하세요.
+         - 특별한 언급이 없다면: 관광과 식사/휴식을 50:50으로 균형 있게 배치하세요.
       
       각 장소는 다음 정확한 키를 사용해 주세요:
       - time: 24시간 형식 문자열 (예: "09:30")
@@ -165,6 +191,7 @@ export async function POST(req: Request) {
       - 여행지: ${destination}
       - 기간: ${period}
       - 핵심 키워드: ${keywords}
+      - 필수 포함 장소: ${include || '없음'} (이 장소들은 반드시 일정에 포함시키세요. 특정 일자가 지정되었다면 그 날짜에 배치하세요.)
 
       JSON 스키마(반드시 이 형태의 키 사용):
       {
@@ -181,9 +208,9 @@ export async function POST(req: Request) {
     `;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [{ role: "user", content: (
-        prompt + `\n\n추가 제약:\n- 총 일수는 정확히 ${dayCount}일 (Day 1 ~ Day ${dayCount})로 구성하세요.\n- 각 Day에는 최소 6~8개의 방문지를 시간대 순으로 배치하세요.\n- 시작 시간은 보통 09:00 전후로, 하루 일정이 무리 없이 진행되도록 하세요.\n\n⚠️ 식사 시간대 필수 포함:\n- 아침 식사 (09:00~10:30): 실제 존재하는 식당 또는 시장/브런치 카페\n- 점심 식사 (12:00~13:30): 실제 존재하는 맛집 또는 먹거리 지역\n- 저녁 식사 (18:00~20:00): 실제 존재하는 고급 식당, 이자카야, 또는 야시장\n- 저녁 이후 (20:30~22:00): 야경, 바, 라이브 공연, 야시장 등\n\n⚠️ 중복 방지:\n- 전체 ${dayCount}일 일정에서 같은 장소를 절대 두 번 방문하지 마세요\n- 이미 방문한 장소는 다른 날에도 포함하지 마세요\n- 각 Day마다 다른 지역, 다른 컨셉의 장소를 추천하세요\n\n- 이동수단 선호: ${preferredTransport || 'DRIVE'} 를 고려해 동선이 자연스럽게 이어지도록 구성하세요.\n- 각 아이템의 설명 끝에 (카테고리: 식사|관광|카페|야경 등) 형태로 간단히 카테고리를 표시하세요.\n- 모든 장소는 실제 존재하는 위치로 위도(latitude)/경도(longitude)를 포함하세요.\n- 각 방문지 간 시간 간격은 이동시간/체류시간을 고려해 50~140분 간격으로 자연스럽게 이어지도록 하세요.\n`
+        prompt + `\n\n추가 제약:\n- 총 일수는 정확히 ${dayCount}일 (Day 1 ~ Day ${dayCount})로 구성하세요.\n- 각 Day에는 5~7개의 방문지를 시간대 순으로 배치하세요.\n- 시작 시간은 보통 09:00 전후로, 하루 일정이 무리 없이 진행되도록 하세요.\n\n⚠️ 식사 시간대 필수 포함:\n- 아침 식사 (09:00~10:30): 실제 존재하는 식당 또는 시장/브런치 카페\n- 점심 식사 (12:00~13:30): 실제 존재하는 맛집 또는 먹거리 지역\n- 저녁 식사 (18:00~20:00): 실제 존재하는 고급 식당, 이자카야, 또는 야시장\n- 저녁 이후 (20:30~22:00): 야경, 바, 라이브 공연, 야시장 등\n\n⚠️ 중복 방지:\n- 전체 ${dayCount}일 일정에서 같은 장소를 절대 두 번 방문하지 마세요\n- 이미 방문한 장소는 다른 날에도 포함하지 마세요\n- 각 Day마다 다른 지역, 다른 컨셉의 장소를 추천하세요\n\n- 이동수단 선호: ${preferredTransport || 'DRIVE'} 를 고려해 동선이 자연스럽게 이어지도록 구성하세요.\n- 각 아이템의 설명 끝에 (카테고리: 식사|관광|카페|야경 등) 형태로 간단히 카테고리를 표시하세요.\n- 모든 장소는 실제 존재하는 위치로 위도(latitude)/경도(longitude)를 포함하세요.\n- 각 방문지 간 시간 간격은 60~90분(식사 90분, 관광 60~120분)으로 하여 22:00 이전에 모든 일정이 끝나도록 하세요.\n`
       ) }],
       response_format: { type: "json_object" },
     });
@@ -224,7 +251,9 @@ export async function POST(req: Request) {
             return placeDetails ? { ...item, ...placeDetails } : item;
           })
         );
-        return { ...day, itinerary: enrichedItinerary };
+        // ⚠️ 썸네일이 없는 장소는 필터링
+        const filteredItinerary = enrichedItinerary.filter(item => item.photoUrl || item.photoUrlByDay);
+        return { ...day, itinerary: filteredItinerary };
       })
     );
 
@@ -247,7 +276,14 @@ export async function POST(req: Request) {
       return { ...d, itinerary: it };
     });
 
-  const enrichedTripData = { ...aiTripData, tripTitle: aiTripData.tripTitle || `${destination} ${keywords || ''} 여행`, days: fixedDays };
+  const enrichedTripData = { 
+    ...aiTripData, 
+    tripTitle: aiTripData.tripTitle || `${destination} ${keywords || ''} 여행`, 
+    days: fixedDays,
+    destination,
+    period,
+    keywords
+  };
     
     // ✨ 모든 작업이 성공했을 때, 여기서 성공 응답을 반환합니다.
     return new Response(JSON.stringify(enrichedTripData), {

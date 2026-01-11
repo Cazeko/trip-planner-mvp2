@@ -1,4 +1,5 @@
 // app/share/[shareId]/page.tsx
+import { Metadata } from 'next';
 import { TripData, Day, ItineraryItem } from '../../../types/trip';
 
 async function getSharedTrip(shareId: string): Promise<TripData | null> {
@@ -16,6 +17,37 @@ async function getSharedTrip(shareId: string): Promise<TripData | null> {
   }
 }
 
+type Props = {
+  params: Promise<{ shareId: string }>;
+};
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { shareId } = await params;
+  const trip = await getSharedTrip(shareId);
+
+  if (!trip) {
+    return {
+      title: '공유된 일정을 찾을 수 없습니다',
+    };
+  }
+
+  return {
+    title: `[여행 일정] ${trip.tripTitle}`,
+    description: `${trip.destination} ${trip.period} 여행 코스를 확인해보세요. AI Trip Planner로 생성된 최적의 동선입니다.`,
+    openGraph: {
+      title: trip.tripTitle,
+      description: `${trip.destination} ${trip.period} 여행 코스 공유`,
+      type: 'article',
+      // images: ['/og-image.png'], // 추후 동적 이미지 생성 기능 추가 가능
+    },
+    twitter: {
+      card: 'summary',
+      title: trip.tripTitle,
+      description: `${trip.destination} ${trip.period} 여행 코스`,
+    },
+  };
+}
+
 // 스타일 객체 (app/page.tsx에서 필요한 부분만 가져와 단순화)
 const styles: { [key: string]: React.CSSProperties } = {
   container: { padding: '20px', fontFamily: "'Pretendard', sans-serif", maxWidth: '800px', margin: 'auto', background: '#fff', color: '#212529' },
@@ -31,11 +63,16 @@ const styles: { [key: string]: React.CSSProperties } = {
   itemDescription: { margin: '8px 0', color: '#495057', fontSize: '16px', whiteSpace: 'pre-wrap' },
   totalBudgetText: { textAlign: 'center', fontSize: '20px', fontWeight: 'bold', color: '#28a745', margin: '10px 0 20px 0' },
   dayTotalText: { fontSize: '16px', color: '#28a745', fontWeight: 'bold' },
+  ctaBox: { marginTop: '40px', textAlign: 'center', padding: '30px', background: '#e7f1ff', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' },
+  ctaTitle: { margin: '0 0 10px 0', color: '#0d6efd', fontSize: '24px', fontWeight: 'bold' },
+  ctaText: { marginBottom: '20px', color: '#495057', fontSize: '16px' },
+  ctaButton: { display: 'inline-block', padding: '14px 28px', background: '#0d6efd', color: 'white', textDecoration: 'none', borderRadius: '30px', fontWeight: 'bold', fontSize: '18px', boxShadow: '0 4px 6px rgba(13, 110, 253, 0.2)', transition: 'transform 0.2s' },
 };
 
 
-export default async function SharedTripPage({ params }: { params: { shareId: string } }) {
-  const tripData = await getSharedTrip(params.shareId);
+export default async function SharedTripPage({ params }: Props) {
+  const { shareId } = await params;
+  const tripData = await getSharedTrip(shareId);
 
   if (!tripData) {
     return (
@@ -93,6 +130,14 @@ export default async function SharedTripPage({ params }: { params: { shareId: st
             </div>
           )
         })}
+      </div>
+
+      <div style={styles.ctaBox}>
+        <h3 style={{ marginBottom: '10px' }}>나도 이런 여행을 계획하고 싶다면?</h3>
+        <p style={{ marginBottom: '20px', color: '#666' }}>AI가 1분 만에 당신만의 맞춤 여행 일정을 만들어드립니다.</p>
+        <a href="/" style={styles.ctaButton}>
+          무료로 내 여행 일정 만들기 ✈️
+        </a>
       </div>
     </div>
   );

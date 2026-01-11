@@ -142,6 +142,16 @@ async def modify_trip(req: LLMModifyRequest):
             if chosen:
                 dn = (chosen.get("displayName") or {}).get("text")
                 loc = chosen.get("location") or {}
+                
+                # ⚠️ 썸네일이 없으면 추가하지 않음
+                photos = chosen.get("photos") or []
+                if not photos:
+                    return LLMModifyResponse(
+                        reply=f"'{query}'는 사진이 없어서 추가할 수 없어요. 다른 장소를 추천해드릴까요?",
+                        ready=False,
+                        trip=req.trip
+                    )
+                
                 new_item.place = dn or query
                 new_item.latitude = loc.get("latitude", lat)
                 new_item.longitude = loc.get("longitude", lng)

@@ -50,7 +50,10 @@ export async function POST(req: NextRequest) {
     // 3. 요청 본문에서 여행 데이터를 가져옵니다.
     const { tripTitle, destination, period, keywords, daysJson } = await req.json();
 
-    if (!tripTitle || !destination || !period || !keywords || !daysJson) {
+    // keywords is optional and may come as non-string (e.g., []); normalize to a string.
+    const normalizedKeywords = typeof keywords === 'string' ? keywords : '';
+
+    if (!tripTitle || !destination || !period || !daysJson) {
       return NextResponse.json({ error: '필수 여행 정보가 누락되었습니다.' }, { status: 400 });
     }
 
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
         tripTitle,
         destination,
         period,
-        keywords,
+        keywords: normalizedKeywords,
         daysJson, // 여행의 상세 내용은 JSON 형태로 저장
       },
     });

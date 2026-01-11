@@ -3,16 +3,57 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* shadcn/tailwind semantic tokens (hex 기반) */
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f8fafc;
+  --secondary-foreground: #0f172a;
+  --accent: #f1f5f9;
+  --accent-foreground: #0f172a;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* iOS-like motion primitives */
+  --ios-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --ios-ease-soft: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ios-dur-fast: 140ms;
+  --ios-dur: 220ms;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --card: #0b0f14;
+    --card-foreground: #ededed;
+    --popover: #0b0f14;
+    --popover-foreground: #ededed;
+    --muted: #111827;
+    --muted-foreground: #94a3b8;
+    --primary: #60a5fa;
+    --primary-foreground: #0a0a0a;
+    --secondary: #0f172a;
+    --secondary-foreground: #e2e8f0;
+    --accent: #111827;
+    --accent-foreground: #e2e8f0;
+    --destructive: #f87171;
+    --destructive-foreground: #0a0a0a;
+    --border: #1f2937;
+    --input: #1f2937;
+    --ring: #60a5fa;
   }
 }
 
@@ -20,6 +61,14 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* iOS-like tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* 지구본 회전 애니메이션 */
@@ -45,5 +94,98 @@ body {
   }
   100% {
     transform: translate(0, 0) rotate(-5deg);
+  }
+}
+
+/* iOS-like interactions (keep colors/layout; improve feel) */
+button,
+summary,
+input,
+textarea,
+select {
+  transition-timing-function: var(--ios-ease) !important;
+}
+
+button {
+  transition-property: filter, transform;
+  transition-duration: var(--ios-dur-fast);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:hover {
+    filter: brightness(0.92);
+  }
+}
+
+button:active {
+  filter: brightness(0.85);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+input,
+textarea,
+select {
+  transition-property: border-color, box-shadow, filter;
+  transition-duration: var(--ios-dur);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  input:hover:not(:disabled),
+  textarea:hover:not(:disabled),
+  select:hover:not(:disabled) {
+    filter: brightness(0.98);
+  }
+}
+
+/* Focus ring: subtle, consistent */
+:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Reduce motion accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* iOS-like modal transitions */
+.ios-modal-overlay {
+  opacity: 0;
+  transition: opacity var(--ios-dur) var(--ios-ease);
+  will-change: opacity;
+}
+
+.ios-modal-overlay[data-state="open"] {
+  opacity: 1;
+}
+
+.ios-modal-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: transform var(--ios-dur) var(--ios-ease), opacity var(--ios-dur) var(--ios-ease);
+  will-change: transform, opacity;
+}
+
+.ios-modal-overlay[data-state="open"] .ios-modal-panel {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ios-modal-overlay,
+  .ios-modal-panel {
+    transition: none !important;
   }
 }

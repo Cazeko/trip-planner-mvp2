@@ -7,8 +7,8 @@ type TripSummaryMeta = {
   travelType?: string;
   budgetMode?: string;
   keywords?: string;
-  preferredTransport?: 'DRIVE' | 'TRANSIT' | 'WALK';
-  preferredTransportMulti?: Array<'DRIVE' | 'TRANSIT' | 'WALK'>;
+  preferredTransport?: string;
+  preferredTransportMulti?: string[];
 };
 
 type TripSummaryBarProps = {
@@ -20,19 +20,46 @@ type TripSummaryBarProps = {
   restoredFromLocal: boolean;
   onDismissRestore: () => void;
   onClearError: () => void;
+  onNewTrip?: () => void;
+  extra?: React.ReactNode;
 };
 
-const transportLabel = (mode: string) => {
-  switch (mode) {
+const transportLabelToken = (token: string) => {
+  const normalized = (token || '').toString().trim().toUpperCase();
+  switch (normalized) {
     case 'DRIVE':
+    case 'DRIVING':
+    case 'CAR':
+    case 'AUTO':
       return '차량';
     case 'TRANSIT':
+    case 'PUBLIC':
+    case 'PUBLIC_TRANSIT':
       return '대중교통';
     case 'WALK':
+    case 'WALKING':
+    case 'ON_FOOT':
       return '도보';
     default:
-      return mode;
+      return token;
   }
+};
+
+const splitTransportTokens = (raw: string): string[] => {
+  const s = (raw ?? '').toString().trim();
+  if (!s) return [];
+  // 이미 한글 라벨(예: "대중교통")이면 그대로 사용
+  if (/[\u3131-\u318E\uAC00-\uD7A3]/.test(s)) return [s];
+  return s
+    .split(/[\s,\/|]+/g)
+    .map(t => t.trim())
+    .filter(Boolean);
+};
+
+const formatTransportModes = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.flatMap(v => formatTransportModes(v));
+  if (value == null) return [];
+  return splitTransportTokens(String(value)).map(transportLabelToken);
 };
 
 const travelTypeLabel = (type?: string) => {
@@ -67,8 +94,15 @@ const TripSummaryBar: React.FC<TripSummaryBarProps> = ({
   restoredFromLocal,
   onDismissRestore,
   onClearError,
+  onNewTrip,
+  extra,
 }) => {
-  const transports = (meta.preferredTransportMulti?.length ? meta.preferredTransportMulti : meta.preferredTransport ? [meta.preferredTransport] : [travelMode]).map(transportLabel);
+  const rawModes: unknown[] = meta.preferredTransportMulti?.length
+    ? meta.preferredTransportMulti
+    : meta.preferredTransport
+      ? [meta.preferredTransport]
+      : [travelMode];
+  const transports = Array.from(new Set(rawModes.flatMap(formatTransportModes)));
   const statusInfo = (() => {
     if (status.error) {
       return { label: '오류 발생', color: '#c92a2a', background: '#fff5f5' };
@@ -95,7 +129,24 @@ const TripSummaryBar: React.FC<TripSummaryBarProps> = ({
           </p>
           {meta.keywords && <p style={styles.keywords}>🏷️ {meta.keywords}</p>}
         </div>
-        <div style={{ ...styles.statusBadge, color: statusInfo.color, backgroundColor: statusInfo.background }}>{statusInfo.label}</div>
+        {onNewTrip && (
+          <button
+            onClick={onNewTrip}
+            style={{
+              padding: '6px 12px',
+              borderRadius: 6,
+              background: '#0d6efd',
+              color: '#fff',
+              border: 'none',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.12)',
+              whiteSpace: 'nowrap',
+              flexShrink: 0
+            }}
+          >🔄 새 일정 시작</button>
+        )}
       </div>
 
       {status.error && (
@@ -118,10 +169,6 @@ const TripSummaryBar: React.FC<TripSummaryBarProps> = ({
           <strong>{travelTypeLabel(meta.travelType)}</strong>
         </div>
         <div>
-          <span style={styles.metaLabel}>예산 모드</span>
-          <strong>{budgetModeLabel(meta.budgetMode)}</strong>
-        </div>
-        <div>
           <span style={styles.metaLabel}>선호 이동수단</span>
           <strong>{transports.join(', ')}</strong>
         </div>
@@ -142,6 +189,12 @@ const TripSummaryBar: React.FC<TripSummaryBarProps> = ({
           </div>
         )}
       </div>
+
+      {extra && (
+        <div style={styles.extraSection}>
+          {extra}
+        </div>
+      )}
     </div>
   );
 };
@@ -151,30 +204,30 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: '#ffffff',
     border: '1px solid #e3e7eb',
     borderRadius: 12,
-    padding: '16px 20px',
-    marginBottom: 20,
-    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)',
+    padding: '12px 16px',
+    marginBottom: 12,
+    boxShadow: '0 4px 12px rgba(15, 23, 42, 0.06)',
   },
   topRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: 16,
-    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   tripTitle: {
     margin: 0,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 700,
     color: '#1b1f24',
   },
   metaLine: {
-    margin: '4px 0',
-    fontSize: 14,
+    margin: '2px 0',
+    fontSize: 13,
     color: '#495057',
   },
   keywords: {
     margin: 0,
-    fontSize: 13,
+    fontSize: 12,
     color: '#6c757d',
   },
   statusBadge: {
@@ -217,27 +270,27 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   metaGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-    gap: 12,
-    marginTop: 16,
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: 8,
+    marginTop: 10,
   },
   metaLabel: {
     display: 'block',
-    fontSize: 12,
+    fontSize: 11,
     color: '#6c757d',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   budgetRow: {
-    marginTop: 18,
+    marginTop: 10,
     borderTop: '1px solid #f1f3f5',
-    paddingTop: 16,
+    paddingTop: 10,
     display: 'flex',
     flexDirection: 'column',
-    gap: 12,
+    gap: 8,
   },
   totalAmount: {
     margin: 0,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 700,
     color: '#1e7e34',
   },
@@ -253,6 +306,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: 12,
     color: '#495057',
     border: '1px solid #e9ecef',
+  },
+  extraSection: {
+    marginTop: 10,
+    borderTop: '1px solid #f1f3f5',
+    paddingTop: 10,
   },
 };
 

@@ -1,8 +1,9 @@
 // components/AlternativesModal.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { ItineraryItem } from '../types/trip';
+import { getAffiliateLink } from '../lib/affiliate';
 
 export type AltFilters = {
 	minRating: number;
@@ -25,8 +26,45 @@ interface AlternativesModalProps {
 
 export default function AlternativesModal({ open, baseItem, list, page, total, filters, onApplyFilters, onPage, onClose, onSelect }: AlternativesModalProps) {
 	const [localFilters, setLocalFilters] = useState<AltFilters>(filters);
+	const [mounted, setMounted] = useState(open);
+	const [uiState, setUiState] = useState<'open' | 'closed'>(open ? 'open' : 'closed');
+	const closeTimerRef = useRef<number | null>(null);
+	const closingRef = useRef(false);
 
-	if (!open) return null;
+	useEffect(() => {
+		setLocalFilters(filters);
+	}, [filters]);
+
+	useEffect(() => {
+		if (open) {
+			closingRef.current = false;
+			setMounted(true);
+			const id = window.requestAnimationFrame(() => setUiState('open'));
+			return () => window.cancelAnimationFrame(id);
+		}
+
+		if (mounted) {
+			setUiState('closed');
+			if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+			closeTimerRef.current = window.setTimeout(() => setMounted(false), 220);
+		}
+	}, [open, mounted]);
+
+	useEffect(() => {
+		return () => {
+			if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+		};
+	}, []);
+
+	const requestClose = () => {
+		if (closingRef.current) return;
+		closingRef.current = true;
+		setUiState('closed');
+		if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+		closeTimerRef.current = window.setTimeout(() => onClose(), 220);
+	};
+
+	if (!mounted) return null;
 
 	const totalPages = Math.max(1, Math.ceil((total || list.length || 0) / 6));
 
@@ -47,11 +85,11 @@ export default function AlternativesModal({ open, baseItem, list, page, total, f
 	};
 
 	return (
-		<div style={styles.overlay} onClick={onClose}>
-			<div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+		<div className="ios-modal-overlay" data-state={uiState} style={styles.overlay} onClick={requestClose}>
+			<div className="ios-modal-panel" style={styles.modal} onClick={(e) => e.stopPropagation()}>
 				<div style={styles.header}>
 					<h3 style={styles.title}>대안 선택</h3>
-					<button style={styles.closeBtn} aria-label="close" onClick={onClose}>&times;</button>
+					<button style={styles.closeBtn} aria-label="close" onClick={requestClose}>&times;</button>
 				</div>
 
 				{baseItem && (
@@ -88,12 +126,30 @@ export default function AlternativesModal({ open, baseItem, list, page, total, f
 					{list.map((c, idx) => (
 						<div key={idx} style={styles.card}>
 							<div style={{ fontWeight: 600, marginBottom: 6 }}>{c.place || c.name || '이름 없음'}</div>
+							
+							{c.reason && (
+								<div style={{ fontSize: 12, color: '#0d6efd', marginBottom: 6, fontWeight: 600, backgroundColor: '#e7f1ff', padding: '4px 8px', borderRadius: 4 }}>
+									💡 {c.reason}
+								</div>
+							)}
+
 							<div style={{ fontSize: 13, color: '#495057' }}>
 								{c.formattedAddress || c.address || ''}
 							</div>
 							<div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 								<span style={{ fontSize: 13 }}>⭐ {c.rating ?? '-'}</span>
-								<button style={styles.button} onClick={() => onSelect(c)}>선택</button>
+								<div style={{ display: 'flex', gap: '4px' }}>
+									<a
+										href={getAffiliateLink(c.place || c.name, c.types?.join(' ')).url}
+										target="_blank"
+										rel="noopener noreferrer"
+										style={{ ...styles.button, backgroundColor: '#28a745', borderColor: '#28a745', color: 'white', textDecoration: 'none', fontSize: '12px', display: 'flex', alignItems: 'center' }}
+										onClick={(e) => e.stopPropagation()}
+									>
+										{getAffiliateLink(c.place || c.name, c.types?.join(' ')).label}
+									</a>
+									<button style={styles.button} onClick={() => onSelect(c)}>선택</button>
+								</div>
 							</div>
 						</div>
 					))}

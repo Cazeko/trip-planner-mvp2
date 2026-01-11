@@ -6,6 +6,7 @@ import type { Day, ItineraryItem } from '../types/trip';
 import PlaceAutocomplete from './PlaceAutocomplete';
 import { styles } from '../lib/uiStyles';
 import { sanitizeText } from '../lib/text';
+import { getAffiliateLink } from '../lib/affiliate';
 
 export type DayColumnProps = {
   day: Day;
@@ -96,6 +97,7 @@ const SortableItem = ({
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: item.place + item.time });
   const style = { transform: CSS.Transform.toString(transform), transition, ...styles.itineraryItem };
+  const affiliate = getAffiliateLink(item.place, item.description);
 
   const [isEditing, setIsEditing] = useState({ time: false, description: false, expense: false });
   const [editedContent, setEditedContent] = useState({ time: item.time, description: item.description, expense: item.expense || '' });
@@ -126,6 +128,9 @@ const SortableItem = ({
     }
   };
 
+  // 디버깅: 각 아이템마다 photoUrl 상태 확인
+  console.log(`[DayColumn] ${item.place}: photoUrl = ${item.photoUrl ? '✓ 있음' : '✗ 없음'}`, item.photoUrl);
+
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
       <div style={styles.itemHeader}>
@@ -152,25 +157,38 @@ const SortableItem = ({
         )}
         <span style={styles.placeName}>{item.place}</span>
       </div>
-      {isEditing.description ? (
-        <textarea
-          value={editedContent.description}
-          onChange={(e) => handleInputChange(e, 'description')}
-          onBlur={() => handleSave('description')}
-          onKeyDown={(e) => handleKeyDown(e, 'description')}
-          autoFocus
-          style={{ ...styles.itemDescription, ...styles.inlineTextarea }}
-          onPointerDown={(e) => e.stopPropagation()}
-        />
-      ) : (
-        <p
-          style={styles.itemDescription}
-          onClick={() => setIsEditing({ ...isEditing, description: true })}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {sanitizeText(item.description) || '클릭하여 설명을 추가하세요...'}
-        </p>
-      )}
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+        {item.photoUrl && (
+          <div style={{ flexShrink: 0, width: '120px', height: '80px', borderRadius: '8px', overflow: 'hidden', background: '#f0f0f0' }}>
+            <img
+              src={item.photoUrl}
+              alt={item.place}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+        )}
+        <div style={{ flex: 1 }}>
+          {isEditing.description ? (
+            <textarea
+              value={editedContent.description}
+              onChange={(e) => handleInputChange(e, 'description')}
+              onBlur={() => handleSave('description')}
+              onKeyDown={(e) => handleKeyDown(e, 'description')}
+              autoFocus
+              style={{ ...styles.itemDescription, ...styles.inlineTextarea }}
+              onPointerDown={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <p
+              style={styles.itemDescription}
+              onClick={() => setIsEditing({ ...isEditing, description: true })}
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {sanitizeText(item.description) || '클릭하여 설명을 추가하세요...'}
+            </p>
+          )}
+        </div>
+      </div>
       {item.reason && <p style={styles.itemReason}>👍 추천 이유: {sanitizeText(item.reason)}</p>}
       <div style={styles.detailsContainer}>
         <div style={styles.detailItem}>
@@ -224,6 +242,14 @@ const SortableItem = ({
         >
           대안
         </button>
+        <a
+          href={affiliate.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ ...styles.actionButton, backgroundColor: '#28a745', borderColor: '#28a745', color: 'white', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px' }}
+        >
+          {affiliate.label}
+        </a>
         <button style={styles.deleteButton} onClick={() => onDeleteItem(dayIndex, itemIndex)}>&times;</button>
       </div>
     </div>
