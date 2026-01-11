@@ -7,8 +7,12 @@ import { prisma, isDatabaseAvailable } from '../../../../../lib/prisma';
 const PROVIDERS = new Set(['google', 'kakao']);
 
 function getBaseUrl(req: NextRequest): string {
-	const url = process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
-	return url.endsWith('/') ? url.slice(0, -1) : url;
+	let url = process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
+	// Remove all trailing slashes to prevent double slashes in redirect URI
+	while (url.endsWith('/')) {
+		url = url.slice(0, -1);
+	}
+	return url;
 }
 
 function secureCookie(req: NextRequest): boolean {
