@@ -1184,7 +1184,7 @@ export default function Home() {
             ? {
                 ...styles.pageContainer,
                 flexDirection: 'column',
-                height: '100vh',
+                height: '100svh',
               }
             : styles.pageContainer
         }
@@ -1240,7 +1240,7 @@ export default function Home() {
                   top: 0,
                   bottom: 0,
                   width: '100vw',
-                  height: '100vh',
+                  height: '100svh',
                   zIndex: 30,
                   pointerEvents: chatColumnOpen ? 'auto' : 'none',
                 }
@@ -1261,13 +1261,14 @@ export default function Home() {
                     left: 0,
                     top: 0,
                     bottom: 0,
-                    width: '85vw',
-                    height: '100vh',
+                    width: '100vw',
+                    height: '100svh',
                     borderRight: '1px solid #e9ecef',
                     boxShadow: (styles.chatColumn as any).boxShadow,
                     transform: chatColumnOpen ? 'translateX(0)' : 'translateX(-100%)',
                     transition: 'transform var(--ios-dur) var(--ios-ease)',
                     overflow: 'hidden',
+                    paddingBottom: 'env(safe-area-inset-bottom, 16px)',
                   }
                 : {
                     ...styles.chatColumn,
