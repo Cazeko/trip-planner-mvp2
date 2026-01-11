@@ -299,6 +299,29 @@ export default function Home() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [msgs, typing]);
 
+  const CHAT_WIDTH = 450;
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+
+    const update = () => setIsMobile(mq.matches);
+    update();
+
+    // Safari 호환
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', update);
+      return () => mq.removeEventListener('change', update);
+    }
+    (mq as any).addListener?.(update);
+    return () => (mq as any).removeListener?.(update);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile) setChatColumnOpen(false);
+  }, [isMobile]);
+
   useEffect(() => {
     // 자동 생성 조건:
     // 1. ready === true (LJJ가 더 질문할 것 없음)
@@ -1155,17 +1178,37 @@ export default function Home() {
 
   return (
     <APIProvider apiKey={process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}>
-      <div style={styles.pageContainer}>
+      <div
+        style={
+          isMobile
+            ? {
+                ...styles.pageContainer,
+                flexDirection: 'column',
+                height: '100vh',
+              }
+            : styles.pageContainer
+        }
+      >
         {/* Toggle Chat Button - Outside chat column */}
         <button
           onClick={() => setChatColumnOpen(!chatColumnOpen)}
           style={{
             position: 'fixed',
-            left: chatColumnOpen ? '450px' : '8px',
-            top: '50%',
-            // When open: center the button on the sidebar boundary.
-            // When closed: keep it fully visible with a small left margin.
-            transform: chatColumnOpen ? 'translate(-50%, -50%)' : 'translateY(-50%)',
+            ...(isMobile
+              ? {
+                  right: '12px',
+                  bottom: '12px',
+                  left: 'auto',
+                  top: 'auto',
+                  transform: 'none',
+                }
+              : {
+                  left: chatColumnOpen ? `${CHAT_WIDTH}px` : '8px',
+                  top: '50%',
+                  // When open: center the button on the sidebar boundary.
+                  // When closed: keep it fully visible with a small left margin.
+                  transform: chatColumnOpen ? 'translate(-50%, -50%)' : 'translateY(-50%)',
+                }),
             width: 36,
             height: 36,
             borderRadius: '50%',
@@ -1178,8 +1221,10 @@ export default function Home() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 20,
-            transition: 'left var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease)',
+            zIndex: 40,
+            transition: isMobile
+              ? 'transform var(--ios-dur) var(--ios-ease)'
+              : 'left var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease)',
           }}
           title={chatColumnOpen ? '채팅 닫기' : '채팅 열기'}
         >
@@ -1187,29 +1232,59 @@ export default function Home() {
         </button>
         {/* Left Column: Chat */}
         <div
-          style={{
-            position: 'relative',
-            height: '100vh',
-            flex: chatColumnOpen ? '0 0 450px' : '0 0 0px',
-            transition: 'flex-basis var(--ios-dur) var(--ios-ease)',
-          }}
+          style={
+            isMobile
+              ? {
+                  position: 'fixed',
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: '100vw',
+                  height: '100vh',
+                  zIndex: 30,
+                  pointerEvents: chatColumnOpen ? 'auto' : 'none',
+                }
+              : {
+                  position: 'relative',
+                  height: '100vh',
+                  flex: chatColumnOpen ? `0 0 ${CHAT_WIDTH}px` : '0 0 0px',
+                  transition: 'flex-basis var(--ios-dur) var(--ios-ease)',
+                }
+          }
         >
-          <div style={{
-            ...styles.chatColumn,
-            width: '450px',
-            minWidth: '450px',
-            padding: '19.2px',
-            borderRight: '1px solid #e9ecef',
-            transition: 'transform var(--ios-dur) var(--ios-ease)',
-            overflow: 'hidden',
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            flexShrink: 0,
-            pointerEvents: chatColumnOpen ? 'auto' : 'none',
-            transform: chatColumnOpen ? 'translateX(0)' : 'translateX(-450px)'
-          }}>
+          <div
+            style={
+              isMobile
+                ? {
+                    ...styles.chatColumn,
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: '85vw',
+                    height: '100vh',
+                    borderRight: '1px solid #e9ecef',
+                    boxShadow: (styles.chatColumn as any).boxShadow,
+                    transform: chatColumnOpen ? 'translateX(0)' : 'translateX(-100%)',
+                    transition: 'transform var(--ios-dur) var(--ios-ease)',
+                    overflow: 'hidden',
+                  }
+                : {
+                    ...styles.chatColumn,
+                    width: `${CHAT_WIDTH}px`,
+                    minWidth: `${CHAT_WIDTH}px`,
+                    transition: 'transform var(--ios-dur) var(--ios-ease)',
+                    overflow: 'hidden',
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    flexShrink: 0,
+                    pointerEvents: chatColumnOpen ? 'auto' : 'none',
+                    transform: chatColumnOpen ? 'translateX(0)' : `translateX(-${CHAT_WIDTH}px)`,
+                  }
+            }
+          >
           <div style={styles.chatHeader}>
             <h1 style={styles.chatTitle}>Tripdom</h1>
             <div style={styles.authContainer}>
@@ -1271,7 +1346,17 @@ export default function Home() {
         </div>
 
         {/* Right Column: Trip Details & Map */}
-        <div style={styles.tripColumn}>
+        <div
+          style={
+            isMobile
+              ? {
+                  ...styles.tripColumn,
+                  padding: '16px',
+                  height: '100vh',
+                }
+              : styles.tripColumn
+          }
+        >
           {isLoading && (
             <div style={styles.tripLoading}>
               <div style={styles.travelAnimation}>
@@ -1553,8 +1638,14 @@ export default function Home() {
                 <TripAnalysis trip={tripResult} travelMode={travelMode as TravelMode} onOptimize={handleOptimize} />
               )}
 
-              <div style={styles.tripBody}>
-                <div style={styles.itineraryPane}>
+              <div style={isMobile ? { ...styles.tripBody, flexDirection: 'column' } : styles.tripBody}>
+                <div
+                  style={
+                    isMobile
+                      ? { ...styles.itineraryPane, paddingRight: 0 }
+                      : styles.itineraryPane
+                  }
+                >
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                     {tripResult.days.map((day, dayIndex) => (
                       <div key={day.day} style={styles.dayContainer}>
@@ -1600,22 +1691,33 @@ export default function Home() {
                 <div
                   style={printing
                     ? { ...styles.mapPane, display: 'none' }
-                    : {
-                        ...styles.mapPane,
-                        flex: '0 0 auto',
-                        flexBasis: showMapPanel ? 'min(420px, 34vw)' : '0px',
-                        minWidth: showMapPanel ? '300px' : '0px',
-                        marginLeft: showMapPanel ? '16px' : '0px',
-                        opacity: showMapPanel ? 1 : 0,
-                        transform: showMapPanel ? 'translateX(0)' : 'translateX(16px)',
-                        pointerEvents: showMapPanel ? 'auto' : 'none',
-                        border: showMapPanel ? (styles.mapPane as any).border : '0px solid transparent',
-                        boxShadow: showMapPanel ? (styles.mapPane as any).boxShadow : 'none',
-                        borderRadius: showMapPanel ? (styles.mapPane as any).borderRadius : 0,
-                        transition:
-                          'flex-basis var(--ios-dur) var(--ios-ease), margin-left var(--ios-dur) var(--ios-ease), opacity var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease), box-shadow var(--ios-dur) var(--ios-ease), border-radius var(--ios-dur) var(--ios-ease)',
-                        willChange: 'flex-basis, margin-left, opacity, transform',
-                      }}
+                    : isMobile
+                      ? {
+                          ...styles.mapPane,
+                          position: 'relative',
+                          top: 'auto',
+                          width: '100%',
+                          marginLeft: 0,
+                          marginTop: 12,
+                          height: '50vh',
+                          display: showMapPanel ? 'flex' : 'none',
+                        }
+                      : {
+                          ...styles.mapPane,
+                          flex: '0 0 auto',
+                          flexBasis: showMapPanel ? 'min(420px, 34vw)' : '0px',
+                          minWidth: showMapPanel ? '300px' : '0px',
+                          marginLeft: showMapPanel ? '16px' : '0px',
+                          opacity: showMapPanel ? 1 : 0,
+                          transform: showMapPanel ? 'translateX(0)' : 'translateX(16px)',
+                          pointerEvents: showMapPanel ? 'auto' : 'none',
+                          border: showMapPanel ? (styles.mapPane as any).border : '0px solid transparent',
+                          boxShadow: showMapPanel ? (styles.mapPane as any).boxShadow : 'none',
+                          borderRadius: showMapPanel ? (styles.mapPane as any).borderRadius : 0,
+                          transition:
+                            'flex-basis var(--ios-dur) var(--ios-ease), margin-left var(--ios-dur) var(--ios-ease), opacity var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease), box-shadow var(--ios-dur) var(--ios-ease), border-radius var(--ios-dur) var(--ios-ease)',
+                          willChange: 'flex-basis, margin-left, opacity, transform',
+                        }}
                 >
                   <div style={styles.mapDayFilter}>
                       <button

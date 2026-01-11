@@ -1,6 +1,6 @@
 import React from 'react';
 
-const SCALE = 0.8; // 전체 UI를 100% 크기로 유지
+const SCALE = 1; // 전체 UI를 100% 크기로 유지
 
 // 모든 숫자 값을 스케일에 맞게 조정하는 헬퍼 함수
 const scaleValue = (value: string | number): string => {
@@ -560,7 +560,7 @@ const rawStyles: { [key: string]: React.CSSProperties } = {
   },
 };
 
-// 모든 스타일을 80% 스케일로 적용
+// 모든 스타일을 SCALE 값으로 스케일 적용
 export const styles = Object.fromEntries(
   Object.entries(rawStyles).map(([key, value]) => [key, scaleStyles(value)])
 );
