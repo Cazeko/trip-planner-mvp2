@@ -7,11 +7,10 @@ import { prisma, isDatabaseAvailable } from '../../../../../lib/prisma';
 const PROVIDERS = new Set(['google', 'kakao']);
 
 function getBaseUrl(req: NextRequest): string {
-	let url = process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
-	// Remove all trailing slashes to prevent double slashes in redirect URI
-	while (url.endsWith('/')) {
-		url = url.slice(0, -1);
-	}
+	const raw = (process.env.NEXT_PUBLIC_SITE_URL || '').toString();
+	const cleaned = raw.split('#')[0].trim();
+	let url = cleaned || req.nextUrl.origin;
+	url = url.trim().replace(/\/+$/, '');
 	return url;
 }
 
@@ -86,7 +85,7 @@ export async function GET(
 			return NextResponse.redirect(toHome);
 		}
 
-		const redirectUri = `${baseUrl}/api/oauth/${provider}/callback`;
+		const redirectUri = new URL(`/api/oauth/${provider}/callback`, baseUrl).toString();
 
 		let email: string | undefined;
 		let nickname: string | undefined;

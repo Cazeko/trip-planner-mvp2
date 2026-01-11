@@ -4,7 +4,11 @@ import { prisma, isDatabaseAvailable } from '../../../../lib/prisma';
 import { sendMail } from '../../../../lib/mailer';
 
 function getBaseUrl(req: NextRequest): string {
-	return process.env.NEXT_PUBLIC_SITE_URL || req.nextUrl.origin;
+	const raw = (process.env.NEXT_PUBLIC_SITE_URL || '').toString();
+	const cleaned = raw.split('#')[0].trim();
+	let url = cleaned || req.nextUrl.origin;
+	url = url.trim().replace(/\/+$/, '');
+	return url;
 }
 
 async function issueResetToken(payload: { userId: string; email: string }): Promise<string> {
@@ -43,7 +47,9 @@ export async function POST(req: NextRequest) {
 
 		const token = await issueResetToken({ userId: user.id, email: user.email });
 		const baseUrl = getBaseUrl(req);
-		const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+		const resetUrlObj = new URL('/reset-password', baseUrl);
+		resetUrlObj.searchParams.set('token', token);
+		const resetUrl = resetUrlObj.toString();
 
 		const subject = '[Trip Planner] 비밀번호 재설정 안내';
 		const text = `아래 링크에서 비밀번호를 재설정할 수 있습니다.\n\n${resetUrl}\n\n이 링크는 15분 후 만료됩니다.`;
