@@ -322,6 +322,11 @@ export default function Home() {
     if (isMobile) setChatColumnOpen(false);
   }, [isMobile]);
 
+  // 모바일에서는 지도 패널을 기본으로 숨겨 일정표가 먼저 보이도록 처리
+  useEffect(() => {
+    if (isMobile) setShowMapPanel(false);
+  }, [isMobile]);
+
   useEffect(() => {
     // 자동 생성 조건:
     // 1. ready === true (LJJ가 더 질문할 것 없음)
