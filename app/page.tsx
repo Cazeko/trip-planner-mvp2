@@ -10,7 +10,7 @@ import { APIProvider } from '@vis.gl/react-google-maps';
 import { jwtDecode } from 'jwt-decode';
 import { authFetch, getStoredToken, clearStoredToken, ensureFreshToken } from '../lib/authClient';
 import { apiFetch } from '../lib/apiFetch';
- 
+import { SpeedInsights } from "@vercel/speed-insights/next"
 
 import TripMap from '../components/TripMap';
 import type { TripData, ItineraryItem, Day } from '../types/trip';
