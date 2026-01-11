@@ -1230,6 +1230,8 @@ export default function Home() {
             transition: isMobile
               ? 'transform var(--ios-dur) var(--ios-ease)'
               : 'left var(--ios-dur) var(--ios-ease), transform var(--ios-dur) var(--ios-ease)',
+            opacity: isMobile && chatColumnOpen ? 0 : 1,
+            pointerEvents: isMobile && chatColumnOpen ? 'none' : 'auto',
           }}
           title={chatColumnOpen ? '채팅 닫기' : '채팅 열기'}
         >
@@ -1644,12 +1646,12 @@ export default function Home() {
                 <TripAnalysis trip={tripResult} travelMode={travelMode as TravelMode} onOptimize={handleOptimize} />
               )}
 
-              <div style={isMobile ? { ...styles.tripBody, flexDirection: 'column' } : styles.tripBody}>
+              <div style={isMobile ? { ...styles.tripBody, flexDirection: 'column', minHeight: 0, flex: '1 1 auto' } : { ...styles.tripBody, minHeight: 0 }}>
                 <div
                   style={
                     isMobile
-                      ? { ...styles.itineraryPane, paddingRight: 0 }
-                      : styles.itineraryPane
+                      ? { ...styles.itineraryPane, paddingRight: 0, flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }
+                      : { ...styles.itineraryPane, minHeight: 0 }
                   }
                 >
                   <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

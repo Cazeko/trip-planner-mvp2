@@ -365,6 +365,7 @@ const rawStyles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     flexDirection: 'row',
     minHeight: 0,
+    flex: '1 1 auto',
   },
   itineraryPane: {
     flex: '1 1 0',
