@@ -4,11 +4,9 @@ import crypto from 'crypto';
 const PROVIDERS = new Set(['google', 'kakao']);
 
 function getBaseUrl(req: NextRequest): string {
-	const raw = (process.env.NEXT_PUBLIC_SITE_URL || '').toString();
-	const cleaned = raw.split('#')[0].trim();
-	let url = cleaned || req.nextUrl.origin;
-	url = url.trim().replace(/\/+$/, '');
-	return url;
+	// [Fix] Always use the request's origin. This matches the browser's current URL bar 
+	// (e.g. the long Vercel deployment URL) and prevents double-slash issues from bad Env vars.
+	return req.nextUrl.origin;
 }
 
 function secureCookie(req: NextRequest): boolean {
